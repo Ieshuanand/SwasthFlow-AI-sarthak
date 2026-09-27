@@ -1,7 +1,7 @@
 # SwasthFlow AI (SwasthAI) — Autonomous Inpatient Hospital Flow Engine
 
 > **Tagline:** Hospitals aren’t short of beds; beds are vacant at 4 PM instead of 10 AM. SwasthFlow AI sequences non-clinical logistics (phlebotomy, insurance pre-auth, housekeeping, porter transfers) backwards from doctor rounds to accelerate discharge velocity and protect critical capacity.
-
+"© 2026 ieshu. This project is shared for portfolio purposes — please don't copy or redistribute."
 ---
 
 ## 🚀 Quick Start Guide (Run in 2 Minutes)
