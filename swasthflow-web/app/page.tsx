@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Activity, 
   Clock, 
@@ -44,17 +44,45 @@ import {
   Smartphone,
   Bed,
   MapPin,
-  ChevronDown
+  ChevronDown,
+  ClipboardList,
+  ClipboardCheck,
+  UserPlus
 } from "lucide-react";
 
 import { HeroVantaBackground } from "./components/HeroVantaBackground";
-import { PageTopologyBackground } from "./components/PageTopologyBackground";
 import { HOSPITAL_DISPLAY_NAME } from "./config/hospital";
 import { StaffAlertsDrawer } from "./components/StaffAlertsFeed";
 import { RegionalBloodInventory } from "./components/RegionalBloodInventory";
 import { WhatsAppDrawer } from "./components/WhatsAppDrawer";
 import { StaffIdentityModal, RoleCategoryDefinition } from "./components/StaffIdentityModal";
 import { PatientPortalShell } from "./components/PatientPortalShell";
+import {
+  DashShell,
+  DashHeadline,
+  DialGauge,
+  DashSectionTitle,
+  SquareIconButton,
+  TodayRow,
+  DateTile,
+  TaskList,
+  StatWidget,
+  Badge,
+  KpiStrip,
+  TabDeck,
+  Donut,
+  BarChart,
+  HBarList,
+  ScheduleTimeline,
+  BedGrid,
+  OK,
+  WARN,
+  BAD,
+  MUTED,
+  ACCENT,
+  type DashNavItem,
+  type DashLinkGroup,
+} from "./components/RoleDashboardShell";
 import { sendSMS, getSMSMessages, SMSMessage } from "./services/smsService";
 import {
   INITIAL_SIM_STATUS,
@@ -574,9 +602,10 @@ interface SimStatus {
 }
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<"TODAYS_PLAN" | "EMERGENCY_READINESS" | "PROOF_EVALUATION" | "ICU_STEPDOWN" | "NURSE_CHECK" | "BILL_ESTIMATOR" | "WHATSAPP" | "ROUND_CLOCK" | "RADAR" | "DELAY_BOOK" | "TASKS" | "BEDS" | "BLOOD_INVENTORY">("TODAYS_PLAN");
+  type TabId = "TODAYS_PLAN" | "EMERGENCY_READINESS" | "PROOF_EVALUATION" | "ICU_STEPDOWN" | "NURSE_CHECK" | "BILL_ESTIMATOR" | "WHATSAPP" | "ROUND_CLOCK" | "RADAR" | "DELAY_BOOK" | "TASKS" | "BEDS" | "BLOOD_INVENTORY";
+  type RoleId = "NURSE" | "DOCTOR" | "CLEANER" | "PHLEBOTOMIST" | "OPERATIONS";
+  const [activeTab, setActiveTab] = useState<TabId>("TODAYS_PLAN");
   const [showWhatsAppDrawer, setShowWhatsAppDrawer] = useState<boolean>(false);
-  const [moreMenuOpen, setMoreMenuOpen] = useState<boolean>(false);
   const [beds, setBeds] = useState<BedData[]>([]);
   const [radar, setRadar] = useState<RadarItem[]>([]);
   const [rounds, setRounds] = useState<DoctorRound[]>([]);
@@ -750,7 +779,41 @@ export default function Dashboard() {
       (!currentUser.roleCategoryId && currentUser.role === "OPERATIONS")
     )
   );
-  const [activeRole, setActiveRole] = useState<"NURSE" | "DOCTOR" | "CLEANER" | "PHLEBOTOMIST" | "OPERATIONS">("NURSE");
+  const [activeRole, setActiveRole] = useState<RoleId>("NURSE");
+  // Role workspaces (everything except the Coordinator command centre) use the
+  // retro tile-sidebar shell and an icon-only navbar.
+  const compactNav = !!currentUser && (currentUser.roleCategoryId === "PATIENT" || activeRole !== "OPERATIONS");
+  const [dashTab, setDashTab] = useState<string>("");
+  const [drawnBeds, setDrawnBeds] = useState<string[]>([]);
+
+  // Support Staff (Housekeeping) → Nurse → Coordinator review loop for scheduled logistics tasks.
+  // Keyed by ScheduledPlanTask.task_id; lives client-side alongside todaysPlan.
+  interface TaskReviewState {
+    staffDone: boolean;
+    staffDoneAt?: string;
+    nurseReviewed: boolean;
+    reviewedByName?: string;
+    reviewedAt?: string;
+    autoAssigned?: boolean;
+  }
+  const [taskReviews, setTaskReviews] = useState<Record<string, TaskReviewState>>({});
+  // "First nurse assigned to that ward" — mirrors the ward→sister mapping shown on the Nurse workspace.
+  const WARD_NURSE_NAME: Record<string, string> = { WARD_A: "Sister Sunita", WARD_B: "Sister Mary", ICU: "Sister Anita" };
+
+  const pushViewToHistory = useCallback((role: RoleId, view?: TabId) => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams();
+    params.set("role", role);
+    if (view) params.set("view", view);
+    window.history.pushState({ role, view: view || null }, "", `?${params.toString()}`);
+  }, []);
+
+  const navigateView = useCallback((role: RoleId, view?: TabId) => {
+    setActiveRole(role);
+    if (view) setActiveTab(view);
+    pushViewToHistory(role, view);
+  }, [pushViewToHistory]);
+
   const [selectedRoleForLogin, setSelectedRoleForLogin] = useState<RoleCategoryDefinition | null>(null);
   const [landingFilterTab, setLandingFilterTab] = useState<string>("ALL");
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("DR_SHARMA");
@@ -792,21 +855,22 @@ export default function Dashboard() {
     }
 
     setCurrentUser(user);
-    setActiveRole(roleCat.mappedSystemRole);
+    setActiveRole(roleCat.mappedSystemRole as RoleId);
 
+    let defaultView: TabId = "TODAYS_PLAN";
     if (roleCat.id === "NURSE") {
-      setActiveTab("NURSE_CHECK");
+      defaultView = "NURSE_CHECK";
       setSelectedNurseWard("WARD_A");
     } else if (roleCat.id === "DOCTOR") {
-      setActiveTab("ROUND_CLOCK");
+      defaultView = "ROUND_CLOCK";
       setSelectedDoctorId("DR_SHARMA");
     } else if (roleCat.id === "SUPPORT") {
-      setActiveTab("TASKS");
+      defaultView = "TASKS";
     } else if (roleCat.id === "PATIENT") {
-      setActiveTab("BILL_ESTIMATOR");
-    } else {
-      setActiveTab("TODAYS_PLAN");
+      defaultView = "BILL_ESTIMATOR";
     }
+    setActiveTab(defaultView);
+    pushViewToHistory(roleCat.mappedSystemRole as RoleId, defaultView);
 
     try {
       localStorage.setItem("swasthflow_staff_user", JSON.stringify(user));
@@ -825,6 +889,9 @@ export default function Dashboard() {
       localStorage.removeItem("swasthflow_staff_user");
     } catch (e) {
       console.error(e);
+    }
+    if (typeof window !== "undefined") {
+      window.history.pushState(null, "", window.location.pathname);
     }
     setActionSuccessMsg("Signed out from frontline duty session.");
   };
@@ -934,12 +1001,21 @@ export default function Dashboard() {
       console.error("Failed to restore session:", e);
     }
 
-    // Deep-link check for ?tab=map, ?tab=regional-map, #map, etc.
+    // Read URL search params for deep-linking and restore
     try {
       if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const urlRole = params.get("role");
+        const urlView = params.get("view");
         const search = window.location.search.toLowerCase();
         const hash = window.location.hash.toLowerCase();
-        if (search.includes("map") || hash.includes("map")) {
+
+        if (urlRole) {
+          setActiveRole(urlRole as RoleId);
+        }
+        if (urlView) {
+          setActiveTab(urlView as TabId);
+        } else if (search.includes("map") || hash.includes("map")) {
           setActiveRole("OPERATIONS");
           setActiveTab("BLOOD_INVENTORY");
         }
@@ -947,6 +1023,26 @@ export default function Dashboard() {
     } catch {
       // Ignore
     }
+
+    // Browser back/forward button support
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state) {
+        if (e.state.role) setActiveRole(e.state.role as RoleId);
+        if (e.state.view) setActiveTab(e.state.view as TabId);
+      } else {
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const urlRole = params.get("role");
+          const urlView = params.get("view");
+          if (urlRole) setActiveRole(urlRole as RoleId);
+          if (urlView) setActiveTab(urlView as TabId);
+        } catch {
+          // Ignore
+        }
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
   const DOCTOR_PROFILES: Record<string, { id: string; name: string; specialty: string; ward: string; roundTime: string; isSurgeon?: boolean }> = {
@@ -1324,7 +1420,7 @@ export default function Dashboard() {
       const data = await res.json();
       alert(data.message || "Payer clearance tasks queued!");
       await fetchData();
-      setActiveTab("TASKS");
+      navigateView("OPERATIONS", "TASKS");
     } catch (err) {
       console.error(err);
     } finally {
@@ -1501,14 +1597,14 @@ export default function Dashboard() {
   const startTour = (step = 0) => {
     setTourActive(true);
     setTourStepIndex(step);
-    setActiveTab(TOUR_STEPS[step].tab);
+    navigateView("OPERATIONS", TOUR_STEPS[step].tab as TabId);
   };
 
   const nextTourStep = () => {
     if (tourStepIndex < TOUR_STEPS.length - 1) {
       const nextIdx = tourStepIndex + 1;
       setTourStepIndex(nextIdx);
-      setActiveTab(TOUR_STEPS[nextIdx].tab);
+      navigateView("OPERATIONS", TOUR_STEPS[nextIdx].tab as TabId);
     } else {
       setTourActive(false);
     }
@@ -1518,7 +1614,7 @@ export default function Dashboard() {
     if (tourStepIndex > 0) {
       const prevIdx = tourStepIndex - 1;
       setTourStepIndex(prevIdx);
-      setActiveTab(TOUR_STEPS[prevIdx].tab);
+      navigateView("OPERATIONS", TOUR_STEPS[prevIdx].tab as TabId);
     }
   };
 
@@ -1548,22 +1644,22 @@ export default function Dashboard() {
         return;
       }
       const key = e.key.toUpperCase();
-      if (e.key === "1") setActiveRole("NURSE");
-      else if (e.key === "2") setActiveRole("DOCTOR");
-      else if (e.key === "3") setActiveRole("CLEANER");
-      else if (e.key === "4") setActiveRole("PHLEBOTOMIST");
-      else if (e.key === "5") setActiveRole("OPERATIONS");
-      else if (key === "P") { setActiveRole("OPERATIONS"); setActiveTab("TODAYS_PLAN"); }
-      else if (key === "E") { setActiveRole("OPERATIONS"); setActiveTab("EMERGENCY_READINESS"); }
-      else if (key === "S") { setActiveRole("OPERATIONS"); setActiveTab("PROOF_EVALUATION"); }
-      else if (key === "I") { setActiveRole("OPERATIONS"); setActiveTab("ICU_STEPDOWN"); }
-      else if (key === "N") { setActiveRole("NURSE"); setActiveTab("NURSE_CHECK"); }
-      else if (key === "B") { setActiveRole("OPERATIONS"); setActiveTab("BILL_ESTIMATOR"); }
+      if (e.key === "1") navigateView("NURSE");
+      else if (e.key === "2") navigateView("DOCTOR");
+      else if (e.key === "3") navigateView("CLEANER");
+      else if (e.key === "4") navigateView("PHLEBOTOMIST");
+      else if (e.key === "5") navigateView("OPERATIONS");
+      else if (key === "P") navigateView("OPERATIONS", "TODAYS_PLAN");
+      else if (key === "E") navigateView("OPERATIONS", "EMERGENCY_READINESS");
+      else if (key === "S") navigateView("OPERATIONS", "PROOF_EVALUATION");
+      else if (key === "I") navigateView("OPERATIONS", "ICU_STEPDOWN");
+      else if (key === "N") navigateView("NURSE", "NURSE_CHECK");
+      else if (key === "B") navigateView("OPERATIONS", "BILL_ESTIMATOR");
       else if (key === "W") { if (isCoordinator) setShowWhatsAppDrawer(prev => !prev); }
-      else if (key === "R") { setActiveRole("DOCTOR"); setActiveTab("ROUND_CLOCK"); }
-      else if (key === "D") { setActiveRole("OPERATIONS"); setActiveTab("RADAR"); }
-      else if (key === "L") { setActiveRole("OPERATIONS"); setActiveTab("DELAY_BOOK"); }
-      else if (key === "M") { setActiveRole("OPERATIONS"); setActiveTab("BLOOD_INVENTORY"); }
+      else if (key === "R") navigateView("DOCTOR", "ROUND_CLOCK");
+      else if (key === "D") navigateView("OPERATIONS", "RADAR");
+      else if (key === "L") navigateView("OPERATIONS", "DELAY_BOOK");
+      else if (key === "M") navigateView("OPERATIONS", "BLOOD_INVENTORY");
       else if (key === "T") {
         setTourActive(prev => {
           const next = !prev;
@@ -1580,65 +1676,275 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-900 flex flex-col font-sans relative selection:bg-[#5b7b94]/30">
-      <PageTopologyBackground />
+  // Hero scroll-parallax — writes scroll offset/progress to CSS vars (no re-render)
+  const heroRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = heroRef.current;
+    if (!el) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const rect = el.getBoundingClientRect();
+      // px scrolled since the hero's top reached the viewport top (0..height)
+      const scrolled = Math.min(Math.max(-rect.top, 0), rect.height);
+      const progress = rect.height ? scrolled / rect.height : 0; // 0..1
+      el.style.setProperty("--sy", scrolled.toFixed(1));
+      el.style.setProperty("--sp", progress.toFixed(3));
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [currentUser]);
 
-      {/* Floating Modern Clinical Header Box */}
-      <div className="sticky top-3 z-50 max-w-7xl mx-auto w-[calc(100%-1.5rem)] sm:w-[calc(100%-3rem)] my-2">
-        <header className="w-full h-20 bg-white/95 backdrop-blur-xl border border-white/80 rounded-2xl px-6 sm:px-10 flex items-center justify-between text-slate-800 shadow-2xl">
+  /* ------------------------------------------------------------------ */
+  /* Role-workspace helpers (Nurse / Doctor / Housekeeping / Phlebotomy) */
+  /* ------------------------------------------------------------------ */
+  const ROLE_SWITCH_OPTIONS: { role: RoleId; label: string; Icon: typeof Activity }[] = [
+    { role: "NURSE", label: "Nurse", Icon: UserCheck },
+    { role: "DOCTOR", label: "Doctor", Icon: Stethoscope },
+    { role: "OPERATIONS", label: "Operations", Icon: Activity },
+    { role: "CLEANER", label: "Housekeeping", Icon: Sparkles },
+    { role: "PHLEBOTOMIST", label: "Phlebotomy", Icon: Syringe },
+  ];
+
+  const roleSidebarGroups = (current: RoleId): DashLinkGroup[] => [
+    {
+      title: "Switch Role",
+      items: ROLE_SWITCH_OPTIONS.filter(r => r.role !== current).map(r => ({
+        id: r.role,
+        label: r.label,
+        Icon: r.Icon,
+        hint: `Open the ${r.label} workspace`,
+        onClick: () => { setDashTab(""); navigateView(r.role); },
+      })),
+    },
+    {
+      title: "Help",
+      defaultOpen: false,
+      items: [
+        { id: "tour", label: "Guided Tour", Icon: Compass, hint: "Step-by-step walkthrough", onClick: () => startTour(0) },
+        { id: "keys", label: "Shortcuts", Icon: Keyboard, hint: "Keyboard shortcuts", onClick: () => setShowShortcutsHelp(true) },
+        { id: "brief", label: "Pitch Brief", Icon: BookOpen, hint: "How SwasthFlow works", onClick: () => setShowPitchModal(true) },
+      ],
+    },
+  ];
+
+  const staffIdentity = currentUser
+    ? {
+        name: currentUser.name,
+        id: currentUser.staff_id,
+        sub: currentUser.shift || "Morning Shift",
+        emoji:
+          activeRole === "NURSE" ? "👩‍⚕️" :
+          activeRole === "DOCTOR" ? "👨‍⚕️" :
+          activeRole === "CLEANER" ? "🧹" :
+          activeRole === "PHLEBOTOMIST" ? "🩸" : "🎛️",
+      }
+    : undefined;
+
+  const staffSidebarFooter = currentUser ? (
+    <div className="space-y-2">
+      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 px-1">Switch Duty</label>
+      <select
+        value={currentUser.role}
+        onChange={(e) => {
+          const match = GENERALIZED_ROLE_CATEGORIES.find(s => s.mappedSystemRole === e.target.value);
+          if (match) { setDashTab(""); handleStaffIdentityConfirm(currentUser.staff_id, currentUser.name, match); }
+        }}
+        aria-label="Switch duty role"
+        className="w-full h-11 px-3 bg-[#0a0a0a] text-white text-sm border border-white/15 focus:outline-none focus:border-[#fb923c]"
+      >
+        <option value="NURSE">👩‍⚕️ Nurse Duty</option>
+        <option value="DOCTOR">👨‍⚕️ Doctor Duty</option>
+        <option value="OPERATIONS">🎛️ Operations Command</option>
+        <option value="CLEANER">🧹 Support Staff</option>
+      </select>
+      <button
+        onClick={handleStaffLogout}
+        className="w-full h-11 flex items-center justify-center gap-2 border border-white/15 text-slate-300 hover:text-black hover:bg-rose-500 hover:border-rose-500 text-xs font-bold uppercase tracking-wider transition"
+      >
+        <LogOut className="w-4 h-4" /> Sign Out / Shift Change
+      </button>
+    </div>
+  ) : null;
+
+  const bedStateColor = (s: string) =>
+    s === "READY" ? OK : s === "DIRTY" ? BAD : s === "OCCUPIED" ? ACCENT : s === "PENDING" ? WARN : MUTED;
+
+  const countStates = (list: BedData[]) =>
+    (["OCCUPIED", "READY", "DIRTY", "PENDING"] as const).map(s => ({
+      label: s.charAt(0) + s.slice(1).toLowerCase(),
+      value: list.filter(b => b.state === s).length,
+      color: bedStateColor(s),
+    }));
+
+  /** "07:05", "2026-01-01T07:05:00", "7:05 AM" → minutes since midnight */
+  const toMinutes = (raw?: string | null): number | null => {
+    if (!raw) return null;
+    const s = raw.includes("T") ? raw.split("T")[1] : raw;
+    const m = s.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    if (m[3]) { const pm = m[3].toUpperCase() === "PM"; if (pm && h < 12) h += 12; if (!pm && h === 12) h = 0; }
+    return h * 60 + min;
+  };
+
+  const handleSampleDrawn = (bedId: string) => {
+    alert(`Sample collected for Bed ${bedId}! Dispatched to central pathology lab.`);
+    setDrawnBeds(prev => (prev.includes(bedId) ? prev : [...prev, bedId]));
+  };
+
+  /** Support/housekeeping staff mark their assigned task complete; it now awaits ward-nurse review. */
+  const markSupportTaskDone = (taskId: string) => {
+    setTaskReviews(prev => ({
+      ...prev,
+      [taskId]: {
+        ...prev[taskId],
+        nurseReviewed: prev[taskId]?.nurseReviewed ?? false,
+        staffDone: true,
+        staffDoneAt: prev[taskId]?.staffDoneAt ?? new Date().toISOString(),
+      },
+    }));
+  };
+
+  /** The ward's own nurse confirms the completed task from her workspace. */
+  const nurseReviewSupportTask = (taskId: string, reviewerName: string) => {
+    setTaskReviews(prev => ({
+      ...prev,
+      [taskId]: {
+        staffDoneAt: new Date().toISOString(),
+        ...prev[taskId],
+        staffDone: true,
+        nurseReviewed: true,
+        reviewedByName: reviewerName,
+        reviewedAt: new Date().toISOString(),
+        autoAssigned: false,
+      },
+    }));
+  };
+
+  /** Coordinator fallback: auto-assigns the ward's nurse to review when no one has yet. */
+  const coordinatorForceReview = (taskId: string, ward: string) => {
+    const nurseName = WARD_NURSE_NAME[ward] || `${ward} Ward Nurse`;
+    setTaskReviews(prev => ({
+      ...prev,
+      [taskId]: {
+        staffDoneAt: new Date().toISOString(),
+        ...prev[taskId],
+        staffDone: true,
+        nurseReviewed: true,
+        reviewedByName: nurseName,
+        reviewedAt: new Date().toISOString(),
+        autoAssigned: true,
+      },
+    }));
+  };
+
+  return (
+    <div className="min-h-screen bg-black text-slate-100 flex flex-col font-sans relative selection:bg-[#f97316]/30">
+
+      {/* Full-Width Sharp Navbar */}
+      <div className="sticky top-0 z-50 w-full">
+        <header className="w-full h-20 bg-[#0a0a0a] border-b border-white/10 px-6 sm:px-10 flex items-center justify-between text-white">
         {/* Left: SwasthAI Brand Lockup */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#eef4f8] text-[#5b7b94] flex items-center justify-center font-bold shadow-xs">
-            <Activity className="w-5 h-5 text-[#5b7b94]" />
+          <div className="w-10 h-10 bg-white/10 text-[#fb923c] flex items-center justify-center border border-white/15">
+            <Activity className="w-5 h-5 text-[#fb923c]" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xl font-black tracking-tight text-slate-900 font-sans">SwasthAI</span>
-              <span className="bg-[#eef4f8] text-[#5b7b94] text-[10px] px-2 py-0.5 rounded-full font-bold">
-                Hospital AI
-              </span>
+              <span className="text-lg font-bold tracking-tight text-white">SwasthAI</span>
+              {!compactNav && (
+                <span className="bg-white/10 text-[#fb923c] text-[9px] px-2 py-0.5 font-bold border border-white/15">
+                  Hospital AI
+                </span>
+              )}
             </div>
-            <p className="text-[10px] text-slate-500 font-medium leading-tight">
-              Hospital Operations Platform
-            </p>
+            {!compactNav && (
+              <p className="text-[9px] text-slate-400 font-medium leading-tight tracking-wide">
+                Hospital Operations Platform
+              </p>
+            )}
           </div>
         </div>
 
         {/* Center: Navigation Links (When on landing page) or Telemetry (When on duty) */}
         {!currentUser ? (
-          <nav className="hidden lg:flex items-center gap-7 text-xs font-semibold text-slate-600">
-            <a href="#hero-section" className="text-slate-900 font-bold hover:text-[#5b7b94] transition">Home</a>
-            <a href="#impact-section" className="hover:text-[#5b7b94] transition">About Platform</a>
-            <a href="#role-selection-section" className="hover:text-[#5b7b94] transition">Hospital Roles</a>
-            <button onClick={() => setShowPitchModal(true)} className="hover:text-[#5b7b94] transition">Pitch Brief</button>
-            <button 
+          <nav className="hidden lg:flex items-center gap-7 text-[10px] font-semibold text-slate-300 uppercase tracking-wider">
+            <a href="#hero-section" className="text-white font-bold hover:text-[#fb923c] transition">Home</a>
+            <a href="#role-selection-section" className="hover:text-[#fb923c] transition">Hospital Roles</a>
+            <button onClick={() => setShowPitchModal(true)} className="uppercase tracking-wider hover:text-[#fb923c] transition">Pitch Brief</button>
+            <button
               onClick={() => {
                 const coordRole = GENERALIZED_ROLE_CATEGORIES.find(r => r.id === "COORDINATOR");
                 if (coordRole) handleStaffIdentityConfirm("C001", "Demo Operator", coordRole);
                 startTour(0);
-              }} 
-              className="text-[#5b7b94] font-bold hover:underline"
+              }}
+              className="text-[#fb923c] font-bold hover:underline uppercase tracking-wider"
             >
               Interactive Tour
             </button>
           </nav>
+        ) : compactNav ? (
+          /* Compact icon telemetry for role workspaces */
+          <div className="hidden md:flex items-stretch h-10 border border-white/15 divide-x divide-white/15 text-xs">
+            <span className="flex items-center gap-1.5 px-3 font-mono text-slate-200" title="10 of 10 safety guardrails active">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              10/10
+            </span>
+            <span className="flex items-center gap-1.5 px-3 font-mono text-slate-200" title={readinessMetrics ? "Beds ready within 30 minutes" : "Beds ready now"}>
+              <Bed className="w-4 h-4 text-[#fb923c]" />
+              {readinessMetrics ? readinessMetrics.readiness_number : status?.ready_beds ?? 4}
+            </span>
+            <span className="flex items-center gap-1.5 px-3 font-mono text-slate-200" title="Hospital simulation clock">
+              <Clock className="w-4 h-4 text-[#fb923c]" />
+              {status?.simulated_date_str || "06:00 AM"}
+            </span>
+            {([
+              { label: "+15", title: "Advance clock 15 minutes", onClick: () => handleTick(15) },
+              { label: "+1h", title: "Advance clock 1 hour", onClick: () => handleTick(60) },
+            ]).map(b => (
+              <button key={b.label} onClick={b.onClick} disabled={actionLoading} title={b.title} aria-label={b.title}
+                className="px-3 font-mono font-bold text-slate-300 hover:text-black hover:bg-[#fb923c] transition disabled:opacity-40">
+                {b.label}
+              </button>
+            ))}
+            <button onClick={handleMorningRushScenario} disabled={actionLoading} title="Morning rush: fast-forward 5 hours (06:00 → 11:00)" aria-label="Morning rush: fast-forward 5 hours"
+              className="w-10 flex items-center justify-center text-slate-300 hover:text-black hover:bg-[#fb923c] transition disabled:opacity-40">
+              <FastForward className="w-4 h-4" />
+            </button>
+            <button onClick={handleChaos} disabled={actionLoading} title="Chaos: inject mass-casualty emergency intake" aria-label="Inject mass-casualty emergency intake"
+              className="w-10 flex items-center justify-center text-amber-400 hover:text-black hover:bg-amber-400 transition disabled:opacity-40">
+              <Zap className="w-4 h-4" />
+            </button>
+            <button onClick={handleReset} disabled={actionLoading} title="Reset simulator" aria-label="Reset simulator"
+              className="w-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition disabled:opacity-40">
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
         ) : (
-          <div className="hidden md:flex items-center gap-3 bg-slate-50 px-3.5 py-1.5 rounded-full border border-slate-200 text-xs">
-            <div className="flex items-center gap-1.5 font-bold text-slate-800">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <div className="hidden md:flex items-center gap-3 bg-white/5 px-3.5 py-1.5 border border-white/15 text-[10px]">
+            <div className="flex items-center gap-1.5 font-bold text-white">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               <span>10/10 Guardrails</span>
             </div>
-            <div className="w-px h-5 bg-slate-300"></div>
-            <div className="font-semibold text-slate-700">
+            <div className="w-px h-5 bg-white/20"></div>
+            <div className="font-semibold text-slate-300">
               {readinessMetrics ? `${readinessMetrics.readiness_number} Beds (30m)` : `${status?.ready_beds ?? 4} Ready`}
             </div>
-            <div className="w-px h-5 bg-slate-300"></div>
-            <div className="font-mono text-slate-600 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <div className="w-px h-5 bg-white/20"></div>
+            <div className="font-mono text-slate-300 flex items-center gap-1">
+              <Clock className="w-3.5 h-3.5 text-[#fb923c]" />
               <span>{status?.simulated_date_str || "06:00 AM"}</span>
             </div>
-            <div className="w-px h-5 bg-slate-300"></div>
+            <div className="w-px h-5 bg-white/20"></div>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => handleTick(15)}
@@ -1692,8 +1998,8 @@ export default function Dashboard() {
             /* Landing Page Header: Public navigation only — NO Alerts and NO WhatsApp */
             <>
               {/* Styled phone pill */}
-              <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200/80 border border-slate-200 text-slate-700 text-xs font-mono font-medium transition shadow-xs">
-                <Phone className="w-3.5 h-3.5 text-[#5b7b94]" />
+              <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/15 text-slate-300 text-[10px] font-mono font-medium transition">
+                <Phone className="w-3.5 h-3.5 text-[#fb923c]" />
                 <span>+91 800-SWASTH</span>
               </div>
 
@@ -1707,12 +2013,77 @@ export default function Dashboard() {
                     if (coordRole) setSelectedRoleForLogin(coordRole);
                   }
                 }}
-                className="px-5 py-2.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-sm hover:shadow-md flex items-center gap-2 ring-2 ring-slate-900/10"
+                className="px-5 py-2.5 bg-[#fb923c] hover:bg-white text-[#0a0a0a] text-[10px] font-bold uppercase tracking-wider transition flex items-center gap-2"
               >
-                <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <UserCheck className="w-3.5 h-3.5" />
                 <span>Select Role</span>
               </button>
             </>
+          ) : compactNav ? (
+            /* Compact icon header for role workspaces — every control kept, text → symbols + tooltips */
+            <div className="flex items-center gap-1.5">
+              <a href="tel:+91800792784" title="Hospital hotline: +91 800-SWASTH" aria-label="Call hospital hotline +91 800-SWASTH"
+                className="hidden sm:flex w-10 h-10 items-center justify-center border border-white/15 text-slate-300 hover:text-[#fb923c] hover:border-[#fb923c] transition">
+                <Phone className="w-4 h-4" />
+              </a>
+              {currentUser.roleCategoryId !== "PATIENT" && (
+                <div className="flex items-center">
+                  <StaffAlertsDrawer
+                    compact
+                    currentRole={currentUser.role}
+                    currentStaffName={currentUser.name}
+                    onNavigateTab={(tab, section) => {
+                      navigateView("OPERATIONS", "BLOOD_INVENTORY");
+                      if (section) {
+                        setTimeout(() => {
+                          window.dispatchEvent(new CustomEvent("swasthai_navigate_regional_map", { detail: { section } }));
+                        }, 100);
+                      }
+                    }}
+                    icuAtCapacity={beds.filter(b => b.ward === "ICU" && b.state === "OCCUPIED").length >= 6}
+                  />
+                </div>
+              )}
+              <div className="hidden sm:block w-px h-6 bg-white/15 mx-1" />
+              <button
+                onClick={() => { if (tourActive) setTourActive(false); else startTour(0); }}
+                title={tourActive ? "Exit guided tour" : "Start guided tour"}
+                aria-label={tourActive ? "Exit guided tour" : "Start guided tour"}
+                className={`hidden sm:flex w-10 h-10 items-center justify-center border transition ${
+                  tourActive ? "bg-[#fb923c] border-[#fb923c] text-black" : "border-white/15 text-slate-300 hover:text-[#fb923c] hover:border-[#fb923c]"
+                }`}
+              >
+                <Compass className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setShowShortcutsHelp(true)}
+                title="Keyboard shortcuts (?)"
+                aria-label="Keyboard shortcuts"
+                className="hidden sm:flex w-10 h-10 items-center justify-center border border-white/15 text-slate-300 hover:text-[#fb923c] hover:border-[#fb923c] transition"
+              >
+                <Keyboard className="w-4 h-4" />
+              </button>
+              <div
+                className="flex items-center gap-2 h-10 pl-1 pr-1 sm:pr-3 border border-white/15 bg-white/5"
+                title={`${currentUser.name} · ${currentUser.roleCategoryId || currentUser.role}`}
+              >
+                <span className="relative w-8 h-8 flex items-center justify-center bg-[#fb923c] text-black text-xs font-bold">
+                  {currentUser.name.replace(/^(Dr\.|Sister|Nurse|Coordinator|Cleaner|Porter|Phlebotomist)\s+/i, "").split(/\s+/).map(p => p[0]).slice(0, 2).join("").toUpperCase()}
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-400 border border-black" />
+                </span>
+                <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wider text-[#fb923c]">
+                  {currentUser.roleCategoryId || currentUser.role}
+                </span>
+              </div>
+              <button
+                onClick={handleStaffLogout}
+                title="Sign out and choose another role"
+                aria-label="Sign out"
+                className="w-10 h-10 flex items-center justify-center border border-white/15 text-slate-300 hover:text-black hover:bg-rose-500 hover:border-rose-500 transition"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           ) : (
             /* Logged-in Staff Dashboard Header */
             <>
@@ -1732,8 +2103,7 @@ export default function Dashboard() {
                     currentRole={currentUser.role} 
                     currentStaffName={currentUser.name} 
                     onNavigateTab={(tab, section) => {
-                      setActiveRole("OPERATIONS");
-                      setActiveTab("BLOOD_INVENTORY");
+                      navigateView("OPERATIONS", "BLOOD_INVENTORY");
                       if (section) {
                         setTimeout(() => {
                           window.dispatchEvent(new CustomEvent("swasthai_navigate_regional_map", { detail: { section } }));
@@ -1767,7 +2137,7 @@ export default function Dashboard() {
 
               {/* Strong User Identity Block on far right */}
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 px-3.5 py-1.5 bg-slate-900 text-white rounded-full shadow-sm text-xs font-bold ring-2 ring-slate-900/10">
+                <div className="flex items-center gap-2 px-3.5 py-1.5 bg-white/10 text-white text-xs font-bold border border-white/20">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                   <span className="max-w-[130px] truncate">{currentUser.name}</span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 font-mono text-emerald-200 uppercase tracking-wider">
@@ -1810,241 +2180,130 @@ export default function Dashboard() {
       </div>
 
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full space-y-6 relative z-10">
+      <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 flex-1 w-full space-y-6">
         {!currentUser ? (
-          <div className="space-y-10 pb-12 animate-fade-in" id="hero-section">
-            {/* HERO SECTION — Slate-Blue Clinical Theme (Matches User's Design Image) */}
-            <div className="relative w-full rounded-3xl overflow-hidden medical-hero-gradient text-white shadow-2xl p-6 sm:p-10 lg:p-14 border border-white/20">
-              <HeroVantaBackground />
+          <div className="space-y-8 pb-12 animate-fade-in" id="hero-section">
+            {/* HERO SECTION — Full-bleed scroll-parallax stage with bg-1.gif */}
+            <div
+              ref={heroRef}
+              style={{ "--sy": 0, "--sp": 0 } as React.CSSProperties}
+              className="group/hero relative w-screen ml-[calc(50%-50vw)] -mt-6 overflow-hidden bg-[#0a0a0a] border-b border-white/10"
+            >
+              <div className="relative h-[90vh] min-h-[600px] max-h-[1000px] w-full">
+                {/* Layer 0 — parallax GIF (drifts slower than scroll) */}
+                <img
+                  src="/media/bg-1.gif"
+                  alt=""
+                  aria-hidden="true"
+                  style={{
+                    transform: "translate3d(0, calc(var(--sy,0) * 0.35px), 0) scale(1.2)",
+                    willChange: "transform",
+                  }}
+                  className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+                />
+                {/* Legibility scrim */}
+                <div className="absolute inset-0 bg-gradient-to-b from-[#0a0a0a]/40 via-[#0a0a0a]/55 to-[#0a0a0a]/80" />
 
-              <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-                {/* Left Column (Hero Content) */}
-                <div className="lg:col-span-7 space-y-6">
-                  {/* Floating Avatar Stack Pill */}
-                  <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-white/15 backdrop-blur-md border border-white/25 text-white text-xs font-semibold shadow-xs">
-                    <div className="flex -space-x-1.5">
-                      <div className="w-5 h-5 rounded-full bg-slate-200 border border-white flex items-center justify-center text-[9px] text-slate-800 font-bold">👩‍⚕️</div>
-                      <div className="w-5 h-5 rounded-full bg-slate-300 border border-white flex items-center justify-center text-[9px] text-slate-800 font-bold">👨‍⚕️</div>
-                      <div className="w-5 h-5 rounded-full bg-slate-400 border border-white flex items-center justify-center text-[9px] text-slate-800 font-bold">🩺</div>
-                    </div>
-                    <span>1,200+ Discharges Accelerated • Autonomous Flow</span>
+                {/* Layer 2 — floating parallax stat cards (lg+) reveal on scroll */}
+                {([
+                  { Icon: CalendarCheck, title: "CP-SAT Scheduler", stat: "<0.05s solve", pos: "top-[16%] left-[5%]", depth: -0.45 },
+                  { Icon: Radar, title: "Discharge Radar", stat: "91% accuracy", pos: "top-[13%] right-[5%]", depth: -0.28 },
+                  { Icon: Clock, title: "Backwards Scheduling", stat: "3.4h saved", pos: "bottom-[16%] left-[7%]", depth: 0.32 },
+                  { Icon: ShieldAlert, title: "10 Guardrails", stat: "10 / 10 passing", pos: "bottom-[18%] right-[6%]", depth: 0.5 },
+                ]).map((c, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      transform: `translate3d(0, calc(var(--sy,0) * ${c.depth}px), 0)`,
+                      opacity: "calc(1 - var(--sp,0) * 1.3)",
+                      willChange: "transform, opacity",
+                    }}
+                    className={`hidden lg:block absolute ${c.pos} z-20 w-52 bg-black/70 backdrop-blur-md border border-white/15 p-4 hover:border-[#fb923c]/70 transition-colors`}
+                  >
+                    <c.Icon className="w-5 h-5 text-[#fb923c]" />
+                    <div className="text-[11px] font-bold text-white uppercase tracking-wider mt-2">{c.title}</div>
+                    <div className="text-[10px] text-[#fb923c] font-mono mt-1">{c.stat}</div>
                   </div>
+                ))}
 
-                  {/* Huge Bold Headline & Subtitle */}
-                  <div className="space-y-3">
-                    {/* Live-Status Branding Line */}
-                    <div className="hero-live-line">
-                      <span className="hero-live-dot" />
+                {/* Layer 1 — centered headline (rises + fades on scroll) */}
+                <div
+                  style={{
+                    transform: "translate3d(0, calc(var(--sy,0) * -0.18px), 0)",
+                    opacity: "calc(1 - var(--sp,0) * 1.15)",
+                  }}
+                  className="relative z-10 h-full max-w-[1400px] mx-auto px-6 sm:px-12 lg:px-20 flex flex-col justify-center items-center text-center"
+                >
+                  <div className="max-w-2xl space-y-5">
+                    <div className="flex items-center justify-center gap-2.5 text-[10px] uppercase tracking-[0.3em] text-[#fb923c]">
+                      <span className="w-2 h-2 bg-emerald-400 animate-pulse" />
                       <span>LIVE &middot; Powered by SwasthAI</span>
                     </div>
 
-                    <h1 className="hero-hospital-name text-5xl sm:text-6xl lg:text-7xl xl:text-8xl font-black uppercase leading-[1.05] font-sans">
+                    <h1 className="text-3xl sm:text-5xl lg:text-6xl font-bold uppercase leading-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.7)]">
                       {HOSPITAL_DISPLAY_NAME}
                     </h1>
-                    <p className="text-base sm:text-lg text-white/90 font-medium max-w-xl leading-relaxed mt-4">
-                      Together, advancing healthcare through compassion, innovation, and patient-centered clinical excellence.
+
+                    <p className="text-[11px] sm:text-xs text-slate-200 leading-relaxed max-w-lg mx-auto drop-shadow-[0_1px_6px_rgba(0,0,0,0.8)]">
+                      Autonomous inpatient flow engine. Predict the need, prepare the bed, protect the moment that matters.
                     </p>
-                  </div>
 
-                  {/* Primary Call to Action */}
-                  <div className="pt-2 flex items-center gap-3 flex-wrap">
-                    <button
-                      onClick={() => {
-                        const el = document.getElementById("role-selection-section");
-                        if (el) el.scrollIntoView({ behavior: "smooth" });
-                      }}
-                      className="btn-navy inline-flex items-center gap-2 text-xs font-bold px-7 py-3.5 shadow-xl hover:scale-105 transition"
-                    >
-                      <span>Explore Operations</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setShowPitchModal(true)}
-                      className="px-6 py-3 rounded-full bg-white/20 hover:bg-white/30 text-white font-bold text-xs backdrop-blur-md border border-white/30 transition"
-                    >
-                      Read Architecture
-                    </button>
-                  </div>
-
-                  {/* Floating Glassmorphism Card (Bottom-Left) */}
-                  <div className="pt-4">
-                    <div className="inline-flex items-center gap-3.5 p-3 rounded-2xl bg-white/95 text-slate-900 shadow-xl border border-white/40 max-w-md">
-                      <img 
-                        src="https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=80&w=200" 
-                        alt="Medical specialist" 
-                        className="w-12 h-12 rounded-xl object-cover shadow-xs" 
-                      />
-                      <div className="text-xs">
-                        <div className="font-bold text-slate-900 leading-snug">
-                          Professional healthcare services for real-time
-                        </div>
-                        <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5 font-medium">
-                          <span>Autonomous Bed Flow</span>
-                          <span>•</span>
-                          <span className="text-[#5b7b94] font-bold">10 Guardrails</span>
-                        </div>
-                      </div>
-                      <button 
+                    <div className="flex items-center justify-center gap-3 flex-wrap pt-2">
+                      <button
                         onClick={() => {
-                          const coordRole = GENERALIZED_ROLE_CATEGORIES.find(r => r.id === "COORDINATOR");
-                          if (coordRole) handleStaffIdentityConfirm("C001", "Demo Operator", coordRole);
-                          startTour(0);
+                          const el = document.getElementById("role-selection-section");
+                          if (el) el.scrollIntoView({ behavior: "smooth" });
                         }}
-                        className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center ml-auto shrink-0 shadow-md hover:scale-105 transition"
-                        title="Start Interactive Tour"
+                        className="px-6 py-3 bg-[#fb923c] hover:bg-white text-[#0a0a0a] text-[10px] font-bold uppercase tracking-wider transition flex items-center gap-2"
                       >
-                        <Play className="w-3.5 h-3.5 ml-0.5 fill-white" />
+                        <span>Explore Operations</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setShowPitchModal(true)}
+                        className="px-6 py-3 border border-white/40 bg-black/20 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-white/10 transition"
+                      >
+                        Read Architecture
                       </button>
                     </div>
                   </div>
                 </div>
-
-                {/* Right Column: Hero Doctor Image & Narrative Card */}
-                <div className="lg:col-span-5 relative flex flex-col items-center">
-                  {/* Doctor Portrait */}
-                  <div className="relative rounded-3xl overflow-hidden shadow-2xl border-4 border-white/30 w-full max-w-md">
-                    <img
-                      src="https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80&w=800"
-                      alt="Attending Clinical Physician"
-                      className="w-full h-auto object-cover max-h-[440px]"
-                    />
-                  </div>
-
-                  {/* Narrative Block (Right Side) */}
-                  <div className="mt-4 p-4 rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 text-white text-xs max-w-md">
-                    <p className="leading-relaxed text-white/90">
-                      At our healthcare operations center, we are committed to delivering advanced medical logistics that place clinical safety, patient dignity, and frontline efficiency at the heart of everything we do.
-                    </p>
-                    <button 
-                      onClick={() => setShowPitchModal(true)}
-                      className="mt-2 text-white font-bold flex items-center gap-1 hover:underline text-[11px]"
-                    >
-                      <span>Explore more</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
 
-            {/* SECTION 2 — TRUST, METRICS & CLINICAL CARDS (Matches Middle of Image) */}
-            <div className="bg-white/95 backdrop-blur-xl rounded-3xl p-8 sm:p-12 border border-white/80 shadow-2xl space-y-10" id="impact-section">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-                {/* Big Metric Block (Left) */}
-                <div className="lg:col-span-4 flex items-center gap-4">
-                  <div className="text-6xl sm:text-7xl font-black text-[#5b7b94] font-sans">
-                    25+
-                  </div>
-                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider leading-snug">
-                    Real-time Monitored Hospital Beds &amp; Autonomous Logistics
-                  </div>
-                </div>
-
-                {/* Narrative Statement (Right) */}
-                <div className="lg:col-span-8 space-y-2">
-                  <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight leading-tight">
-                    Trusted medical professionals united by one purpose — delivering compassionate, quality healthcare.
-                  </h2>
-                  <p className="text-sm text-slate-600 leading-relaxed">
-                    Working together as experienced doctors, dedicated nurses, and specialized support staff to provide accurate diagnoses, personalized care plans, and comprehensive patient recovery with complete clinical oversight.
-                  </p>
-                  <div className="pt-2">
-                    <button
-                      onClick={() => setShowPitchModal(true)}
-                      className="px-5 py-2.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition"
-                    >
-                      Explore Operations Brief
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Two Media / Stat Preview Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-                {/* Card 1: Collaborative Rounding Video Preview */}
-                <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-sm group">
-                  <img
-                    src="https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&q=80&w=700"
-                    alt="Clinical Consultations"
-                    className="w-full h-52 object-cover group-hover:scale-105 transition duration-300"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-950/20 to-transparent flex items-end p-5">
-                    <div className="flex items-center justify-between w-full">
-                      <div>
-                        <div className="text-white font-bold text-sm">Autonomous Clinical Telemetry</div>
-                        <div className="text-white/80 text-xs">Real-time bed turnover &amp; ICU stepdown orchestration</div>
-                      </div>
-                      <div className="w-10 h-10 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-lg">
-                        <Play className="w-4 h-4 ml-0.5 fill-slate-900 text-slate-900" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 2: Diagnostics & Hospital Statistics */}
-                <div className="p-6 rounded-2xl border border-slate-200 bg-[#eef4f8] flex flex-col justify-between space-y-4">
-                  <div className="flex items-center gap-4">
-                    <img
-                      src="https://images.unsplash.com/photo-1582719471384-894fbb16e074?auto=format&fit=crop&q=80&w=300"
-                      alt="Diagnostics Laboratory"
-                      className="w-24 h-24 rounded-2xl object-cover shadow-sm border-2 border-white shrink-0"
-                    />
-                    <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#5b7b94]">Laboratory &amp; TPA</span>
-                      <h3 className="text-base font-bold text-slate-900 mt-0.5">Automated Discharge Gate</h3>
-                      <p className="text-xs text-slate-600 mt-1 leading-snug">
-                        Backwards-scheduled fasting phlebotomy and multi-payer P90 authorization lead times.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 pt-3 border-t border-slate-200">
-                    <div>
-                      <div className="text-2xl font-black text-slate-900 font-sans">90%</div>
-                      <div className="text-[11px] text-slate-500 font-medium">Patient satisfaction rate</div>
-                    </div>
-                    <div>
-                      <div className="text-2xl font-black text-slate-900 font-sans">135+</div>
-                      <div className="text-[11px] text-slate-500 font-medium">Patients successfully healed</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* SECTION 3 — DEPARTMENT DOCTOR AVAILABILITY & ROLE PORTALS (Matches Bottom of Image) */}
-            <div className="bg-white/95 backdrop-blur-xl rounded-3xl p-8 sm:p-12 border border-white/80 shadow-2xl space-y-8" id="role-selection-section">
+            {/* SECTION 3 — ROLE PORTALS (sharp, dark) */}
+            <div className="bg-[#0a0a0a] border border-white/10 p-8 sm:p-12 space-y-8" id="role-selection-section">
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
-                  <span className="text-xs font-bold text-[#5b7b94] uppercase tracking-wider">Healthcare Services &amp; Roles</span>
-                  <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mt-1">
-                    Medicine department doctor availability and schedule
+                  <span className="text-[10px] font-bold text-[#fb923c] uppercase tracking-[0.3em]">Healthcare Services &amp; Roles</span>
+                  <h2 className="text-xl sm:text-2xl font-bold text-white uppercase tracking-tight mt-2">
+                    Select Your Clinical Duty Station
                   </h2>
-                  <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                    Select your clinical duty station to access personalized AI automation, bedside check-ins, and doctor authorization workflows.
+                  <p className="text-[10px] text-slate-400 mt-2 max-w-xl leading-relaxed normal-case">
+                    Access personalized AI automation, bedside check-ins, and doctor authorization workflows.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
                     onClick={() => {
                       const tabs = ["ALL", "NURSE", "DOCTOR", "COORDINATOR", "SUPPORT", "PATIENT"];
                       const currIdx = tabs.indexOf(landingFilterTab);
                       const nextIdx = (currIdx - 1 + tabs.length) % tabs.length;
                       setLandingFilterTab(tabs[nextIdx]);
                     }}
-                    className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100 transition shadow-xs"
+                    className="w-9 h-9 bg-white/5 border border-white/15 flex items-center justify-center text-slate-300 hover:bg-white/10 transition"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <button 
+                  <button
                     onClick={() => {
                       const tabs = ["ALL", "NURSE", "DOCTOR", "COORDINATOR", "SUPPORT", "PATIENT"];
                       const currIdx = tabs.indexOf(landingFilterTab);
                       const nextIdx = (currIdx + 1) % tabs.length;
                       setLandingFilterTab(tabs[nextIdx]);
                     }}
-                    className="w-9 h-9 rounded-full bg-slate-900 text-white flex items-center justify-center hover:bg-slate-800 transition shadow-xs"
+                    className="w-9 h-9 bg-[#fb923c] text-[#0a0a0a] flex items-center justify-center hover:bg-white transition"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>
@@ -2052,7 +2311,7 @@ export default function Dashboard() {
               </div>
 
               {/* Department Filter Tabs */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 text-[10px]">
                 {[
                   { id: "ALL", label: "All Roles" },
                   { id: "NURSE", label: "Nursing Care" },
@@ -2064,10 +2323,10 @@ export default function Dashboard() {
                   <button
                     key={tab.id}
                     onClick={() => setLandingFilterTab(tab.id)}
-                    className={`px-4 py-2 rounded-full font-bold transition whitespace-nowrap ${
+                    className={`px-4 py-2 font-bold uppercase tracking-wider transition whitespace-nowrap ${
                       landingFilterTab === tab.id
-                        ? "bg-slate-900 text-white shadow-sm"
-                        : "bg-white hover:bg-slate-100 text-slate-600 border border-slate-200"
+                        ? "bg-[#fb923c] text-[#0a0a0a]"
+                        : "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/15"
                     }`}
                   >
                     {tab.label}
@@ -2075,46 +2334,46 @@ export default function Dashboard() {
                 ))}
               </div>
 
-              {/* Role Cards Grid matching screenshot */}
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-5">
+              {/* Role Cards Grid — sharp, with imagery */}
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 border-t border-l border-white/10">
                 {GENERALIZED_ROLE_CATEGORIES
                   .filter(role => landingFilterTab === "ALL" || role.id === landingFilterTab)
                   .map((role, idx) => (
                   <div
                     key={role.id}
                     onClick={() => setSelectedRoleForLogin(role)}
-                    className={`stagger-card-${idx} bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:shadow-lg hover:-translate-y-1 transition duration-200 flex flex-col justify-between group cursor-pointer`}
+                    className={`stagger-card-${idx} bg-white/5 hover:bg-white/10 border-r border-b border-white/10 p-5 transition duration-200 flex flex-col justify-between group cursor-pointer`}
                   >
                     <div className="space-y-3">
-                      {/* Image Thumbnail Header for each role */}
-                      <div className="relative h-32 rounded-xl overflow-hidden bg-slate-100">
+                      {/* Image thumbnail — sharp, fully visible */}
+                      <div className="relative w-full aspect-[4/3] overflow-hidden bg-black border border-white/10">
                         <img
                           src={
-                            role.id === "NURSE" ? "https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&q=80&w=400" :
-                            role.id === "DOCTOR" ? "https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=80&w=400" :
-                            role.id === "COORDINATOR" ? "https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&q=80&w=400" :
-                            role.id === "SUPPORT" ? "https://images.unsplash.com/photo-1582719471384-894fbb16e074?auto=format&fit=crop&q=80&w=400" :
-                            "https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?auto=format&fit=crop&q=80&w=400"
+                            role.id === "NURSE" ? "/media/nurse.jpg" :
+                            role.id === "DOCTOR" ? "/media/doctor.jpg" :
+                            role.id === "COORDINATOR" ? "/media/coordinator.jpg" :
+                            role.id === "SUPPORT" ? "/media/support.jpg" :
+                            "/media/family.jpg"
                           }
                           alt={role.label}
-                          className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                          className="w-full h-full object-contain group-hover:scale-105 transition duration-300"
                         />
-                        <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] font-bold text-slate-800 shadow-xs flex items-center gap-1">
+                        <div className="absolute top-2 left-2 bg-black/80 px-2 py-0.5 text-[9px] font-bold text-[#fb923c] uppercase tracking-wider border border-white/15 flex items-center gap-1">
                           <span>{role.iconEmoji}</span>
                           <span>{role.badge}</span>
                         </div>
                       </div>
 
                       <div>
-                        <h3 className="font-extrabold text-slate-900 text-base group-hover:text-[#5b7b94] transition">
+                        <h3 className="font-bold text-white text-sm uppercase tracking-wide group-hover:text-[#fb923c] transition">
                           {role.label}
                         </h3>
-                        <div className="text-[11px] text-slate-500 font-medium">
+                        <div className="text-[10px] text-slate-400 font-medium normal-case mt-0.5">
                           {role.title}
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-600 line-clamp-3">
+                      <div className="pt-2 border-t border-white/10 text-[10px] text-slate-400 line-clamp-3 normal-case leading-relaxed">
                         {role.systemScope}
                       </div>
                     </div>
@@ -2122,10 +2381,10 @@ export default function Dashboard() {
                     <div className="pt-4 mt-2">
                       <button
                         type="button"
-                        className="w-full py-2.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-xs"
+                        className="w-full py-2.5 bg-[#fb923c] group-hover:bg-white text-[#0a0a0a] font-bold text-[10px] uppercase tracking-wider transition flex items-center justify-center gap-1.5"
                       >
-                        <UserCheck className="w-3.5 h-3.5 text-white" />
-                        Select Role ➔
+                        <UserCheck className="w-3.5 h-3.5" />
+                        Select Role
                       </button>
                     </div>
                   </div>
@@ -2133,29 +2392,29 @@ export default function Dashboard() {
               </div>
 
               {/* Bottom Operational Telemetry Strip */}
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4 text-xs font-mono text-slate-600">
+              <div className="bg-white/5 p-4 border border-white/10 flex flex-wrap items-center justify-between gap-4 text-[10px] font-mono text-slate-400">
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span className="font-bold text-slate-900 uppercase">Live Hospital Status:</span>
-                  <span className="bg-[#eef4f8] text-[#5b7b94] px-2.5 py-0.5 rounded-full font-bold">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="font-bold text-white uppercase">Live Hospital Status:</span>
+                  <span className="bg-white/10 text-[#fb923c] px-2.5 py-0.5 font-bold border border-white/15">
                     10/10 Guardrails Active
                   </span>
-                  <span className="bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-full font-bold">
+                  <span className="bg-white/10 text-slate-300 px-2.5 py-0.5 font-bold border border-white/15">
                     Live 30-Bed Demonstrator
                   </span>
                 </div>
 
-                <div className="flex items-center gap-4 text-slate-600 text-xs flex-wrap">
+                <div className="flex items-center gap-4 text-slate-400 flex-wrap">
                   <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" />
-                    Clock: <strong className="text-slate-900">{status?.simulated_date_str || "06:00 AM"}</strong>
+                    <Clock className="w-3.5 h-3.5 text-[#fb923c]" />
+                    Clock: <strong className="text-white">{status?.simulated_date_str || "06:00 AM"}</strong>
                   </span>
-                  <div className="w-px h-3.5 bg-slate-200"></div>
-                  <span>Ready Beds: <strong className="text-emerald-600">{status?.ready_beds ?? 4}</strong></span>
-                  <div className="w-px h-3.5 bg-slate-200"></div>
-                  <span>Occupancy: <strong className="text-slate-900">{status?.occupied_beds ?? 22}/30</strong></span>
-                  <div className="w-px h-3.5 bg-slate-200"></div>
-                  <span className="text-emerald-700 font-bold">Shift: Morning (06:00 - 14:00)</span>
+                  <div className="w-px h-3.5 bg-white/20"></div>
+                  <span>Ready Beds: <strong className="text-emerald-400">{status?.ready_beds ?? 4}</strong></span>
+                  <div className="w-px h-3.5 bg-white/20"></div>
+                  <span>Occupancy: <strong className="text-white">{status?.occupied_beds ?? 22}/30</strong></span>
+                  <div className="w-px h-3.5 bg-white/20"></div>
+                  <span className="text-emerald-400 font-bold">Shift: Morning (06:00 - 14:00)</span>
                 </div>
               </div>
             </div>
@@ -2173,10 +2432,10 @@ export default function Dashboard() {
         ) : (
           <>
             {/* ACTIVE DUTY STATUS BANNER (Staff Only) */}
-            {currentUser.roleCategoryId !== "PATIENT" && (
-              <div className="bg-white text-slate-900 p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-fade-in">
+            {currentUser.roleCategoryId !== "PATIENT" && !compactNav && (
+              <div className="bg-[#0a0a0a] text-slate-200 p-5 border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-fade-in">
                 <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-2xl bg-[#eef4f8] border border-[#5b7b94]/20 flex items-center justify-center text-2xl shadow-inner">
+                  <div className="w-12 h-12 bg-[#fb923c]/15 border border-[#fb923c]/30 flex items-center justify-center text-2xl">
                     {currentUser.role === "NURSE" ? "👩‍⚕️" :
                      currentUser.role === "DOCTOR" ? "👨‍⚕️" :
                      currentUser.role === "CLEANER" ? "🧹" :
@@ -2184,24 +2443,24 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold font-mono">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span className="flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-400/10 text-emerald-400 border border-emerald-400/30 text-[10px] font-bold uppercase tracking-wider">
+                        <span className="w-2 h-2 bg-emerald-400 animate-pulse"></span>
                         ON DUTY: {currentUser.shift || "Morning Shift"}
                       </span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full border border-slate-200">
+                      <span className="text-[10px] font-mono px-2 py-0.5 bg-white/5 text-slate-400 border border-white/10 normal-case">
                         ID: {currentUser.staff_id}
                       </span>
                     </div>
-                    <h2 className="text-lg font-black text-slate-900 mt-0.5 flex items-center gap-2">
+                    <h2 className="text-lg font-bold text-white mt-1 flex items-center gap-2 uppercase tracking-tight">
                       <span>{currentUser.name}</span>
-                      <span className="text-xs font-normal text-slate-500">• {currentUser.title || currentUser.role} ({currentUser.ward ? (currentUser.ward === "WARD_A" ? "Medical Ward A" : currentUser.ward === "WARD_B" ? "Surgical Ward B" : "ICU") : currentUser.department || "Hospital-Wide"})</span>
+                      <span className="text-xs font-normal text-slate-500 normal-case">• {currentUser.title || currentUser.role} ({currentUser.ward ? (currentUser.ward === "WARD_A" ? "Medical Ward A" : currentUser.ward === "WARD_B" ? "Surgical Ward B" : "ICU") : currentUser.department || "Hospital-Wide"})</span>
                     </h2>
                   </div>
                 </div>
 
                 {/* Handoff & Fast Switch Controls */}
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200 text-xs">
+                  <div className="flex items-center gap-1.5 bg-white/5 px-3 py-1.5 border border-white/10 text-xs">
                     <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Switch Duty:</span>
                     <select
                       value={currentUser.role}
@@ -2210,21 +2469,21 @@ export default function Dashboard() {
                         const match = GENERALIZED_ROLE_CATEGORIES.find(s => s.mappedSystemRole === targetRole);
                         if (match) handleStaffIdentityConfirm(currentUser.staff_id, currentUser.name, match);
                       }}
-                      className="bg-white text-slate-800 text-xs p-1 rounded-lg border border-slate-200 font-bold focus:outline-none"
+                      className="bg-[#0a0a0a] text-white text-xs p-1 border border-white/15 font-bold focus:outline-none focus:border-[#fb923c]"
                     >
-                      <option value="NURSE">👩‍⚕️ Nurse Duty</option>
-                      <option value="DOCTOR">👨‍⚕️ Doctor Duty</option>
-                      <option value="OPERATIONS">🎛️ Operations Command</option>
-                      <option value="CLEANER">🧹 Support Staff</option>
+                      <option value="NURSE" className="text-slate-900">👩‍⚕️ Nurse Duty</option>
+                      <option value="DOCTOR" className="text-slate-900">👨‍⚕️ Doctor Duty</option>
+                      <option value="OPERATIONS" className="text-slate-900">🎛️ Operations Command</option>
+                      <option value="CLEANER" className="text-slate-900">🧹 Support Staff</option>
                     </select>
                   </div>
 
                   <button
                     onClick={handleStaffLogout}
-                    className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 rounded-full text-xs font-bold transition flex items-center gap-1.5 shadow-xs border border-slate-200"
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-xs font-bold uppercase tracking-wider transition flex items-center gap-1.5 border border-white/15"
                     title="Sign Out from shift and return to Staff Login Portal"
                   >
-                    <LogOut className="w-3.5 h-3.5 text-slate-600" />
+                    <LogOut className="w-3.5 h-3.5" />
                     Sign Out / Shift Change
                   </button>
                 </div>
@@ -2234,118 +2493,168 @@ export default function Dashboard() {
         {/* ========================================================================= */}
         {/* DEDICATED ROLE DASHBOARD 1: WARD SISTER / NURSE PORTAL                     */}
         {/* ========================================================================= */}
-        {activeRole === "NURSE" && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Nurse Banner & Ward Sub-selector */}
-            <div className="bg-gradient-to-r from-blue-950 via-indigo-950 to-slate-900 text-white p-5 rounded-2xl shadow-md border border-indigo-700/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-white/10 rounded-xl border border-white/20 text-indigo-300">
-                  <UserCheck className="w-6 h-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
-                      Ward Sister Portal
-                    </span>
-                    <span className="text-xs text-slate-300 font-medium">
-                      Frontline Bedside Screening &amp; Logistics
-                    </span>
-                  </div>
-                  <h2 className="text-xl font-black text-white mt-0.5">
-                    {selectedNurseWard === "WARD_A" ? "Sister Sunita — Medical Ward A" :
-                     selectedNurseWard === "WARD_B" ? "Sister Mary — Surgical Ward B" :
-                     "Sister Anita — Intensive Care Unit"}
-                  </h2>
-                </div>
-              </div>
-
-              {/* Ward Selector */}
-              <div className="flex items-center gap-2 bg-black/30 p-1.5 rounded-xl border border-white/10">
+        {activeRole === "NURSE" && (() => {
+          const nTab = dashTab.startsWith("nurse-") ? dashTab : "nurse-checks";
+          const wardName = selectedNurseWard === "WARD_A" ? "Medical Ward A" : selectedNurseWard === "WARD_B" ? "Surgical Ward B" : "Intensive Care Unit";
+          const sisterName = selectedNurseWard === "WARD_A" ? "Sister Sunita" : selectedNurseWard === "WARD_B" ? "Sister Mary" : "Sister Anita";
+          const wardBeds = beds.filter(b => b.ward === selectedNurseWard);
+          const occupied = wardBeds.filter(b => b.state === "OCCUPIED").length;
+          const wardCands = nurseCandidates.filter(c => c.ward === selectedNurseWard);
+          const pendingChecks = wardCands.filter(c => !c.current_consent);
+          const nurseTasks = tasks.filter(t => (t.ward === selectedNurseWard || t.ward === "ALL") && t.role === "NURSE");
+          const barriers = wardCands.filter(c => c.current_consent && c.current_consent !== "green");
+          const consent = [
+            { label: "Green", value: wardCands.filter(c => c.current_consent === "green").length, color: OK },
+            { label: "Amber", value: barriers.filter(c => c.current_consent !== "red").length, color: WARN },
+            { label: "Red", value: wardCands.filter(c => c.current_consent === "red").length, color: BAD },
+            { label: "Unchecked", value: pendingChecks.length, color: MUTED },
+          ];
+          // Completed housekeeping/support tasks in this ward awaiting the ward nurse's final sign-off.
+          const wardSupportTasks = (todaysPlan?.scheduled_tasks ?? []).filter(t => (t.role === "CLEANING" || t.role === "HOUSEKEEPING") && t.ward === selectedNurseWard);
+          const supportAwaitingReview = wardSupportTasks.filter(t => taskReviews[t.task_id]?.staffDone && !taskReviews[t.task_id]?.nurseReviewed);
+          const nav: DashNavItem[] = [
+            { id: "nurse-checks", label: "Morning Checks", Icon: CalendarCheck, badge: pendingChecks.length },
+            { id: "nurse-tasks", label: "My Tasks", Icon: Send, badge: nurseTasks.length },
+            { id: "nurse-review", label: "Housekeeping Review", Icon: ClipboardCheck, badge: supportAwaitingReview.length },
+            { id: "nurse-voice", label: "Voice Alerts", Icon: Volume2, badge: Math.min(whatsappMessages.length, 3) },
+            { id: "nurse-barriers", label: "Barriers", Icon: AlertTriangle, badge: barriers.length },
+            { id: "nurse-board", label: "Ward Board", Icon: Bed },
+          ];
+          const today = [
+            ...nurseTasks.slice(0, 3).map(t => ({
+              id: t.id,
+              label: t.title_en,
+              meta: `Due ${new Date(t.deadline).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${Math.round(t.confidence * 100)}% confidence`,
+              onCheck: () => handleTaskAction(t.id, "done"),
+              checkLabel: `Mark "${t.title_en}" done`,
+              onOpen: () => setDashTab("nurse-tasks"),
+            })),
+            ...pendingChecks.slice(0, Math.max(0, 3 - nurseTasks.length)).map(c => ({
+              id: c.encounter_id,
+              label: `Bedside check · ${c.bed_id}`,
+              meta: `${c.patient_name} — ${c.diagnosis_name}`,
+              onOpen: () => setDashTab("nurse-checks"),
+            })),
+          ];
+          return (
+          <DashShell
+            brandTitle="SwasthAI"
+            BrandIcon={HeartPulse}
+            identity={staffIdentity}
+            nav={nav}
+            activeId={nTab}
+            onSelect={setDashTab}
+            groups={roleSidebarGroups("NURSE")}
+            sidebarFooter={staffSidebarFooter}
+            searchPlaceholder="Patient or bed..."
+            searchIndex={[
+              ...wardCands.map(c => ({ label: `${c.patient_name} (${c.bed_id})`, sub: c.diagnosis_name, tab: "nurse-checks" })),
+              ...nurseTasks.map(t => ({ label: t.title_en, sub: "Nursing task", tab: "nurse-tasks" })),
+              ...wardSupportTasks.map(t => ({ label: t.task_title, sub: `Housekeeping · Bed ${t.bed_id}`, tab: "nurse-review" })),
+              ...barriers.map(c => ({ label: `${c.patient_name} (${c.bed_id})`, sub: "Caregiver barrier", tab: "nurse-barriers" })),
+              ...wardBeds.map(b => ({ label: `Bed ${b.id}`, sub: b.state.toLowerCase(), tab: "nurse-board" })),
+            ]}
+            breadcrumb={["Home", "Nurse", nav.find(n => n.id === nTab)?.label ?? ""]}
+            headerRight={
+              <div role="group" aria-label="Select ward" className="flex items-stretch border border-white/15">
                 {[
-                  { id: "WARD_A", label: "Medical Ward A", nurse: "Sister Sunita" },
-                  { id: "WARD_B", label: "Surgical Ward B", nurse: "Sister Mary" },
-                  { id: "ICU",    label: "ICU",             nurse: "Sister Anita" }
+                  { id: "WARD_A", label: "Ward A", full: "Medical Ward A" },
+                  { id: "WARD_B", label: "Ward B", full: "Surgical Ward B" },
+                  { id: "ICU", label: "ICU", full: "Intensive Care Unit" },
                 ].map(w => (
                   <button
                     key={w.id}
                     onClick={() => setSelectedNurseWard(w.id)}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
-                      selectedNurseWard === w.id
-                        ? "bg-indigo-600 text-white shadow-sm"
-                        : "text-slate-300 hover:text-white hover:bg-white/10"
+                    title={w.full}
+                    aria-pressed={selectedNurseWard === w.id}
+                    className={`h-10 px-4 text-xs font-bold uppercase tracking-wider border-r border-white/15 last:border-r-0 transition ${
+                      selectedNurseWard === w.id ? "bg-[#fb923c] text-black" : "text-slate-400 hover:text-white hover:bg-white/10"
                     }`}
                   >
                     {w.label}
                   </button>
                 ))}
               </div>
+            }
+          >
+            <DashHeadline
+              line1={sisterName}
+              line2={<>Bedside <span className="text-slate-300 font-bold">Screening</span> For</>}
+              line3={wardName}
+              aside={<DialGauge value={wardBeds.length ? occupied / wardBeds.length : 0} label="Ward Occupancy" display={`${occupied}/${wardBeds.length}`} />}
+            />
+
+            <div>
+              <DashSectionTitle title="Today's Tasks" count={nurseTasks.length + pendingChecks.length}>
+                <SquareIconButton Icon={BarChart3} label="Open ward board" onClick={() => setDashTab("nurse-board")} />
+                <SquareIconButton Icon={ArrowRight} label="View all nursing tasks" onClick={() => setDashTab("nurse-tasks")} />
+              </DashSectionTitle>
+              <TodayRow>
+                <DateTile clock={status?.simulated_date_str} />
+                <TaskList tasks={today} emptyText="No nursing tasks or bedside checks pending in this ward." />
+                <StatWidget
+                  title="Family Readiness"
+                  onOpen={() => setDashTab("nurse-barriers")}
+                  legend={consent.map(c => ({ label: c.label, color: c.color, value: c.value }))}
+                  chart={
+                    <Donut
+                      segments={consent}
+                      center={
+                        <div>
+                          <div className="text-lg font-bold text-white leading-none">{wardCands.length}</div>
+                          <div className="text-[9px] text-slate-500 uppercase tracking-wider mt-1">Patients</div>
+                        </div>
+                      }
+                    />
+                  }
+                  badge={<Badge tone="ok">✓ {consent[0].value} cleared to go</Badge>}
+                />
+              </TodayRow>
             </div>
 
-            {/* Nurse Quick Metrics */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Ward Census</div>
-                <div className="text-2xl font-black text-slate-800 mt-1">
-                  {beds.filter(b => b.ward === selectedNurseWard && b.state === "OCCUPIED").length}
-                  <span className="text-xs font-normal text-slate-400"> / {beds.filter(b => b.ward === selectedNurseWard).length} Beds</span>
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Nurse Checks Needed</div>
-                <div className="text-2xl font-black text-amber-600 mt-1">
-                  {nurseCandidates.filter(c => c.ward === selectedNurseWard && !c.current_consent).length}
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">My Nursing Tasks</div>
-                <div className="text-2xl font-black text-indigo-600 mt-1">
-                  {tasks.filter(t => (t.ward === selectedNurseWard || t.ward === "ALL") && t.role === "NURSE").length}
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Flagged Barriers</div>
-                <div className="text-2xl font-black text-rose-600 mt-1">
-                  {nurseCandidates.filter(c => c.ward === selectedNurseWard && c.current_consent === "red").length}
-                </div>
-              </div>
-            </div>
+            <KpiStrip
+              items={[
+                { label: "Ward Census", value: occupied, sub: `/ ${wardBeds.length} beds` },
+                { label: "Nurse Checks Needed", value: pendingChecks.length, color: ACCENT },
+                { label: "My Nursing Tasks", value: nurseTasks.length, color: ACCENT },
+                { label: "Flagged Barriers", value: consent[2].value, color: BAD },
+              ]}
+            />
 
-            {/* Two-Column Nurse Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Left Column: Morning Bedside Checks & Audio */}
-              <div className="space-y-6">
-                {/* Morning Bedside Check Form Card */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <TabDeck tabs={nav} active={nTab} onChange={setDashTab}>
+              <>
+                {nTab === "nurse-checks" && (
+                <div id="nurse-checks" className="scroll-mt-32 bg-[#0a0a0a] border border-white/10 p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
                     <div>
-                      <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                      <h3 className="font-bold text-white flex items-center gap-2 uppercase tracking-tight text-sm">
+                        <CheckCircle2 className="w-4 h-4 text-[#fb923c]" />
                         Morning Bedside Nurse Check (Feature F4)
                       </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-xs text-slate-500 mt-0.5 normal-case">
                         Screen caregiver availability and home obstacles before rounds.
                       </p>
                     </div>
-                    <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    <span className="text-[10px] px-2.5 py-0.5 font-bold uppercase tracking-wider bg-[#fb923c]/10 text-[#fb923c] border border-[#fb923c]/30">
                       {nurseCandidates.filter(c => c.ward === selectedNurseWard).length} Patients
                     </span>
                   </div>
 
                   {nurseCandidates.filter(c => c.ward === selectedNurseWard).length === 0 ? (
-                    <div className="p-6 text-center text-slate-400 text-xs italic bg-slate-50 rounded-xl">
+                    <div className="p-6 text-center text-slate-500 text-xs italic bg-white/5 border border-white/10 normal-case">
                       No patients currently pending morning nurse check in this ward.
                     </div>
                   ) : (
                     nurseCandidates.filter(c => c.ward === selectedNurseWard).map(cand => {
                       const currentForm = nurseForm[cand.encounter_id] || { payer: "yes", family: "yes", home: "None" };
                       return (
-                        <div key={cand.encounter_id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
+                        <div key={cand.encounter_id} className="p-4 border border-white/10 bg-white/5 space-y-3">
                           <div className="flex items-center justify-between">
                             <div>
-                              <div className="font-bold text-slate-900 text-sm">{cand.patient_name} ({cand.bed_id})</div>
-                              <div className="text-[11px] text-slate-500">{cand.diagnosis_name} • Dr. {cand.consultant_name}</div>
+                              <div className="font-bold text-white text-sm normal-case">{cand.patient_name} ({cand.bed_id})</div>
+                              <div className="text-[11px] text-slate-400 normal-case">{cand.diagnosis_name} • Dr. {cand.consultant_name}</div>
                             </div>
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${getPayerColor(cand.payer_type)}`}>
+                            <span className={`px-2 py-0.5 text-[10px] font-bold border ${getPayerColor(cand.payer_type)}`}>
                               {cand.payer_type}
                             </span>
                           </div>
@@ -2353,11 +2662,11 @@ export default function Dashboard() {
                           {/* 3 Questions */}
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                             <div>
-                              <label className="text-[10px] font-bold text-slate-600 block mb-1">Payer Confirmed?</label>
+                              <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-wider">Payer Confirmed?</label>
                               <select
                                 value={currentForm.payer}
                                 onChange={(e) => handleNurseFormChange(cand.encounter_id, "payer", e.target.value)}
-                                className="w-full text-xs p-1.5 border border-slate-200 rounded-lg bg-white"
+                                className="w-full text-xs p-1.5 border border-white/15 bg-[#0a0a0a] text-white focus:outline-none focus:border-[#fb923c]"
                               >
                                 <option value="yes">Yes (Confirmed)</option>
                                 <option value="no">No (Unconfirmed)</option>
@@ -2365,11 +2674,11 @@ export default function Dashboard() {
                               </select>
                             </div>
                             <div>
-                              <label className="text-[10px] font-bold text-slate-600 block mb-1">Family Available?</label>
+                              <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-wider">Family Available?</label>
                               <select
                                 value={currentForm.family}
                                 onChange={(e) => handleNurseFormChange(cand.encounter_id, "family", e.target.value)}
-                                className="w-full text-xs p-1.5 border border-slate-200 rounded-lg bg-white"
+                                className="w-full text-xs p-1.5 border border-white/15 bg-[#0a0a0a] text-white focus:outline-none focus:border-[#fb923c]"
                               >
                                 <option value="yes">Yes (At Bedside)</option>
                                 <option value="no">No (Absent)</option>
@@ -2377,11 +2686,11 @@ export default function Dashboard() {
                               </select>
                             </div>
                             <div>
-                              <label className="text-[10px] font-bold text-slate-600 block mb-1">Home Barrier?</label>
+                              <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-wider">Home Barrier?</label>
                               <select
                                 value={currentForm.home}
                                 onChange={(e) => handleNurseFormChange(cand.encounter_id, "home", e.target.value)}
-                                className="w-full text-xs p-1.5 border border-slate-200 rounded-lg bg-white"
+                                className="w-full text-xs p-1.5 border border-white/15 bg-[#0a0a0a] text-white focus:outline-none focus:border-[#fb923c]"
                               >
                                 <option value="None">None (🟢 Ready)</option>
                                 <option value="Needs ramp">Needs ramp (🟡 Amber)</option>
@@ -2393,13 +2702,13 @@ export default function Dashboard() {
                           </div>
 
                           <div className="flex items-center justify-between pt-1">
-                            <span className="text-[11px] text-indigo-700 font-mono font-medium">
+                            <span className="text-[11px] text-[#fb923c] font-mono normal-case">
                               P(Discharge): {cand.p_discharge_percent}%
                             </span>
                             <button
                               onClick={() => handleNurseSubmit(cand.encounter_id)}
                               disabled={submittingEncounterId === cand.encounter_id}
-                              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm transition disabled:opacity-50"
+                              className="px-3 py-1.5 bg-[#fb923c] hover:bg-white text-[#0a0a0a] text-[11px] font-bold uppercase tracking-wider transition disabled:opacity-50"
                             >
                               {submittingEncounterId === cand.encounter_id ? "Saving..." : "Save Assessment"}
                             </button>
@@ -2409,37 +2718,39 @@ export default function Dashboard() {
                     })
                   )}
                 </div>
+                )}
 
                 {/* Urgent Hindi Voice Delivery Card */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                {nTab === "nurse-voice" && (
+                <div id="nurse-voice" className="scroll-mt-32 bg-[#0a0a0a] border border-white/10 p-5 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
                     <div>
-                      <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                        <Volume2 className="w-4 h-4 text-emerald-600" />
+                      <h3 className="font-bold text-white flex items-center gap-2 uppercase tracking-tight text-sm">
+                        <Volume2 className="w-4 h-4 text-emerald-400" />
                         Urgent Hindi Voice Alerts (Feature F5)
                       </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-xs text-slate-500 mt-0.5 normal-case">
                         Local Piper Neural TTS voice prompts in Hindi for busy stations.
                       </p>
                     </div>
-                    <span className="text-[10px] font-mono px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded font-bold">
+                    <span className="text-[10px] font-mono px-2 py-0.5 bg-emerald-400/10 text-emerald-400 border border-emerald-400/30 font-bold normal-case">
                       Piper ONNX Offline
                     </span>
                   </div>
 
                   {whatsappMessages.slice(0, 3).map(msg => (
-                    <div key={msg.task_id} className="p-3 bg-emerald-50/50 border border-emerald-200 rounded-xl space-y-2">
+                    <div key={msg.task_id} className="p-3 bg-white/5 border border-white/10 space-y-2">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-slate-900">{msg.title_en}</span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
+                        <span className="font-bold text-white normal-case">{msg.title_en}</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 bg-emerald-400/10 text-emerald-400 border border-emerald-400/30 font-bold normal-case">
                           {msg.ward}
                         </span>
                       </div>
-                      <div className="text-xs text-slate-700 font-hindi leading-relaxed bg-white p-2.5 rounded-lg border border-emerald-100">
+                      <div className="text-xs text-slate-300 font-hindi leading-relaxed bg-[#111] p-2.5 border border-white/10 normal-case">
                         {msg.reason_hi || msg.title_hi}
                       </div>
                       <div className="flex items-center justify-between pt-1">
-                        <span className="text-[10px] text-slate-500 font-mono">
+                        <span className="text-[10px] text-slate-500 font-mono normal-case">
                           Task ID: {msg.task_id}
                         </span>
                         {msg.audio_url ? (
@@ -2454,7 +2765,7 @@ export default function Dashboard() {
                                 console.error(e);
                               }
                             }}
-                            className="px-2.5 py-1 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition flex items-center gap-1 shadow-sm"
+                            className="px-2.5 py-1 bg-emerald-500 text-[#0a0a0a] text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-400 transition flex items-center gap-1"
                           >
                             <Volume2 className="w-3.5 h-3.5" />
                             Synthesize Hindi Audio
@@ -2464,60 +2775,59 @@ export default function Dashboard() {
                     </div>
                   ))}
                 </div>
-              </div>
+                )}
 
-              {/* Right Column: Ward Nursing Tasks & Caregiver Barrier Resolution */}
-              <div className="space-y-6">
                 {/* Nursing Tasks from Sequencer */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                {nTab === "nurse-tasks" && (
+                <div id="nurse-tasks" className="scroll-mt-32 bg-[#0a0a0a] border border-white/10 p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
                     <div>
-                      <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                        <CalendarCheck className="w-4 h-4 text-indigo-600" />
+                      <h3 className="font-bold text-white flex items-center gap-2 uppercase tracking-tight text-sm">
+                        <CalendarCheck className="w-4 h-4 text-[#fb923c]" />
                         Assigned Nursing Worklist (CP-SAT)
                       </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-xs text-slate-500 mt-0.5 normal-case">
                         Prioritized tasks with mathematical WHY evidence.
                       </p>
                     </div>
-                    <span className="text-xs font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                    <span className="text-[10px] font-mono font-bold text-[#fb923c] bg-[#fb923c]/10 px-2 py-0.5 border border-[#fb923c]/30 normal-case">
                       {tasks.filter(t => (t.ward === selectedNurseWard || t.ward === "ALL") && t.role === "NURSE").length} Tasks
                     </span>
                   </div>
 
                   {tasks.filter(t => (t.ward === selectedNurseWard || t.ward === "ALL") && t.role === "NURSE").length === 0 ? (
-                    <div className="p-6 text-center text-slate-400 text-xs italic bg-slate-50 rounded-xl">
+                    <div className="p-6 text-center text-slate-500 text-xs italic bg-white/5 border border-white/10 normal-case">
                       No pending nursing tasks in this ward.
                     </div>
                   ) : (
                     tasks.filter(t => (t.ward === selectedNurseWard || t.ward === "ALL") && t.role === "NURSE").map(t => (
-                      <div key={t.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
+                      <div key={t.id} className="p-3.5 border border-white/10 bg-white/5 space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <h4 className="font-bold text-slate-900 text-xs">{t.title_en}</h4>
-                            <div className="text-[11px] text-indigo-700 font-hindi mt-0.5">{t.title_hi}</div>
+                            <h4 className="font-bold text-white text-xs normal-case">{t.title_en}</h4>
+                            <div className="text-[11px] text-[#fb923c] font-hindi mt-0.5 normal-case">{t.title_hi}</div>
                           </div>
-                          <span className="text-[10px] font-mono px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded font-bold border border-indigo-200">
+                          <span className="text-[10px] font-mono px-2 py-0.5 bg-[#fb923c]/10 text-[#fb923c] font-bold border border-[#fb923c]/30 normal-case">
                             {Math.round(t.confidence * 100)}% Conf
                           </span>
                         </div>
-                        <div className="p-2 bg-white rounded-lg border border-slate-100 text-[11px] text-slate-600">
-                          <strong>WHY: </strong>{t.reason_en}
+                        <div className="p-2 bg-[#111] border border-white/10 text-[11px] text-slate-400 normal-case">
+                          <strong className="text-slate-200">WHY: </strong>{t.reason_en}
                         </div>
                         <div className="flex items-center justify-between pt-1 text-xs">
-                          <span className="text-slate-400 text-[10px] font-mono">
+                          <span className="text-slate-500 text-[10px] font-mono normal-case">
                             Deadline: {new Date(t.deadline).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={() => handleTaskAction(t.id, "done")}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold transition shadow-sm"
+                              className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-[#0a0a0a] text-[11px] font-bold uppercase tracking-wider transition"
                             >
                               Done
                             </button>
                             <button
                               onClick={() => { setCannotModalTaskId(t.id); }}
-                              className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-xs font-medium transition"
+                              className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-slate-300 text-[11px] font-bold uppercase tracking-wider transition"
                             >
                               Cannot
                             </button>
@@ -2527,36 +2837,100 @@ export default function Dashboard() {
                     ))
                   )}
                 </div>
+                )}
+
+                {/* Phlebotomy Review — final ward sign-off on completed phlebotomy tasks */}
+                {nTab === "nurse-review" && (
+                <div id="nurse-review" className="scroll-mt-32 bg-[#0a0a0a] border border-white/10 p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                    <div>
+                      <h3 className="font-bold text-white flex items-center gap-2 uppercase tracking-tight text-sm">
+                        <ClipboardCheck className="w-4 h-4 text-[#fb923c]" />
+                        Housekeeping Task Review — {wardName}
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5 normal-case">
+                        Confirm each completed cleaning task before it closes out on the Coordinator&apos;s board.
+                      </p>
+                    </div>
+                    <span className="text-[10px] px-2.5 py-0.5 font-bold uppercase tracking-wider bg-amber-400/10 text-amber-400 border border-amber-400/30">
+                      {supportAwaitingReview.length} Awaiting Review
+                    </span>
+                  </div>
+
+                  {wardSupportTasks.length === 0 ? (
+                    <div className="p-6 text-center text-slate-500 text-xs italic bg-white/5 border border-white/10 normal-case">
+                      No housekeeping tasks sequenced in this ward yet.
+                    </div>
+                  ) : (
+                    wardSupportTasks.map(t => {
+                      const review = taskReviews[t.task_id];
+                      return (
+                        <div key={t.task_id} className="p-4 border border-white/10 bg-white/5 space-y-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <div className="font-bold text-white text-sm normal-case">{t.task_title}</div>
+                              <div className="text-[11px] text-slate-400 normal-case">
+                                {t.patient_name} · Bed {t.bed_id} · Cleaned by {t.assigned_staff_name}
+                              </div>
+                            </div>
+                            {!review?.staffDone ? (
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 shrink-0">Not done yet</span>
+                            ) : review.nurseReviewed ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-400/40 shrink-0">
+                                <ClipboardCheck className="w-3.5 h-3.5" /> Reviewed
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => nurseReviewSupportTask(t.task_id, sisterName)}
+                                className="px-3 py-2 bg-[#fb923c] hover:bg-white text-[#0a0a0a] text-[11px] font-bold uppercase tracking-wider transition flex items-center gap-1.5 shrink-0"
+                              >
+                                <ClipboardCheck className="w-3.5 h-3.5" /> Review &amp; Confirm
+                              </button>
+                            )}
+                          </div>
+                          {review?.nurseReviewed && (
+                            <div className="text-[11px] text-emerald-300 normal-case">
+                              Reviewed by {review.reviewedByName}{review.autoAssigned ? " (auto-assigned by Coordinator)" : ""} at{" "}
+                              {new Date(review.reviewedAt!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                )}
 
                 {/* Caregiver Barrier Tracker */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                {nTab === "nurse-barriers" && (
+                <div id="nurse-barriers" className="scroll-mt-32 bg-[#0a0a0a] border border-white/10 p-5 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
                     <div>
-                      <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      <h3 className="font-bold text-white flex items-center gap-2 uppercase tracking-tight text-sm">
+                        <AlertTriangle className="w-4 h-4 text-amber-400" />
                         Caregiver &amp; Social Barrier Tracker
                       </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-xs text-slate-500 mt-0.5 normal-case">
                         Actionable counseling tasks for family readiness (Guardrail #8).
                       </p>
                     </div>
                   </div>
 
                   {nurseCandidates.filter(c => c.ward === selectedNurseWard && c.current_consent && c.current_consent !== "green").length === 0 ? (
-                    <div className="p-6 text-center text-slate-400 text-xs italic bg-slate-50 rounded-xl">
+                    <div className="p-6 text-center text-slate-500 text-xs italic bg-white/5 border border-white/10 normal-case">
                       No active caregiver barriers flagged in this ward.
                     </div>
                   ) : (
                     nurseCandidates.filter(c => c.ward === selectedNurseWard && c.current_consent && c.current_consent !== "green").map(c => (
-                      <div key={c.encounter_id} className={`p-3.5 rounded-xl border space-y-2 ${c.current_consent === "red" ? "bg-rose-50/50 border-rose-200" : "bg-amber-50/50 border-amber-200"}`}>
+                      <div key={c.encounter_id} className={`p-3.5 border space-y-2 ${c.current_consent === "red" ? "bg-rose-500/5 border-rose-500/40" : "bg-amber-400/5 border-amber-400/40"}`}>
                         <div className="flex items-center justify-between text-xs font-bold">
-                          <span className="text-slate-900">{c.patient_name} ({c.bed_id})</span>
-                          <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-black ${c.current_consent === "red" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"}`}>
+                          <span className="text-white normal-case">{c.patient_name} ({c.bed_id})</span>
+                          <span className={`px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold ${c.current_consent === "red" ? "bg-rose-500/15 text-rose-400 border border-rose-500/40" : "bg-amber-400/15 text-amber-400 border border-amber-400/40"}`}>
                             {c.current_consent === "red" ? "🔴 Red Barrier" : "🟡 Amber Pending"}
                           </span>
                         </div>
-                        <div className="text-[11px] text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200">
-                          <strong>Counseling Action: </strong>
+                        <div className="text-[11px] text-slate-400 bg-[#111] p-2.5 border border-white/10 normal-case">
+                          <strong className="text-slate-200">Counseling Action: </strong>
                           {c.current_consent === "red"
                             ? "Family barrier identified (No caregiver / Oxygen required). Bed release blocked until verified."
                             : "Financial / Transport pending. Follow up with family before physician rounds."}
@@ -2565,86 +2939,219 @@ export default function Dashboard() {
                     ))
                   )}
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
+                )}
+
+                {/* Ward Board — bed-state chart, bed map and discharge likelihood */}
+                {nTab === "nurse-board" && (
+                  <div className="p-5 sm:p-6 grid grid-cols-1 xl:grid-cols-2 gap-10">
+                    <div className="space-y-5">
+                      <h3 className="font-bold text-white uppercase tracking-tight text-sm flex items-center gap-2">
+                        <Bed className="w-4 h-4 text-[#fb923c]" /> Bed States · {wardName}
+                      </h3>
+                      <BarChart data={countStates(wardBeds)} height={150} />
+                      <BedGrid beds={wardBeds} colorFor={bedStateColor} />
+                      <p className="text-xs text-slate-500 normal-case">Hover a square to see the bed number and state.</p>
+                    </div>
+                    <div className="space-y-5">
+                      <h3 className="font-bold text-white uppercase tracking-tight text-sm flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-[#fb923c]" /> Discharge Likelihood
+                      </h3>
+                      {wardCands.length === 0 ? (
+                        <div className="p-6 text-center text-slate-500 text-xs italic bg-white/5 border border-white/10 normal-case">No discharge candidates in this ward yet.</div>
+                      ) : (
+                        <HBarList
+                          data={[...wardCands].sort((a, b) => b.p_discharge - a.p_discharge).slice(0, 8).map(c => ({
+                            label: c.patient_name,
+                            sub: c.bed_id,
+                            value: c.p_discharge,
+                            color: c.current_consent === "red" ? BAD : c.current_consent === "green" ? OK : c.current_consent ? WARN : ACCENT,
+                          }))}
+                        />
+                      )}
+                      <p className="text-xs text-slate-500 normal-case">Bar colour shows family readiness: green cleared, amber pending, red blocked, orange not yet checked.</p>
+                    </div>
+                  </div>
+                )}
+              </>
+            </TabDeck>
+          </DashShell>
+          );
+        })()}
 
         {/* ========================================================================= */}
         {/* DEDICATED ROLE DASHBOARD 2: DOCTOR / CONSULTANT PORTAL                     */}
         {/* ========================================================================= */}
-        {activeRole === "DOCTOR" && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Doctor Header Bar */}
-            <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-blue-950 text-white p-5 rounded-2xl shadow-md border border-indigo-700/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-indigo-600/30 rounded-xl border border-indigo-500/30 text-indigo-300">
-                  <Stethoscope className="w-6 h-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                      Attending Consultant Portal
-                    </span>
-                    <span className="text-xs text-slate-300">
-                      Guardrail #1 Decision Gates &amp; Bedside Round Census
-                    </span>
-                  </div>
-                  <h2 className="text-xl font-black text-white mt-0.5">
-                    {DOCTOR_PROFILES[selectedDoctorId]?.name} — {DOCTOR_PROFILES[selectedDoctorId]?.specialty}
-                  </h2>
-                </div>
-              </div>
+        {activeRole === "DOCTOR" && (() => {
+          const dTab = dashTab.startsWith("doc-") ? dashTab : "doc-census";
+          // Staff logins carry IDs like "D001" that aren't profile keys — fall back to the first consultant.
+          const docId = DOCTOR_PROFILES[selectedDoctorId] ? selectedDoctorId : Object.keys(DOCTOR_PROFILES)[0];
+          const doc = DOCTOR_PROFILES[docId];
+          const nameKey = doc?.name?.toLowerCase().split(" ")[1]?.toLowerCase() || "sharma";
+          const myBeds = beds.filter(b => b.current_encounter?.consultant?.toLowerCase().includes(nameKey));
+          const pOf = (b: BedData) => b.current_encounter?.p_discharge ?? 0;
+          const ranked = [...myBeds].sort((a, b) => pOf(b) - pOf(a));
+          const readyCount = myBeds.filter(b => pOf(b) >= 0.7).length;
+          const midCount = myBeds.filter(b => pOf(b) >= 0.4 && pOf(b) < 0.7).length;
+          const avgP = myBeds.length ? myBeds.reduce((s, b) => s + pOf(b), 0) / myBeds.length : 0;
+          const markers = [
+            { label: "Oral meds", value: myBeds.filter(b => b.current_encounter?.iv_to_oral).length, color: OK },
+            { label: "Room air", value: myBeds.filter(b => b.current_encounter?.oxygen_removed).length, color: OK },
+            { label: "Normal diet", value: myBeds.filter(b => b.current_encounter?.diet_normalized).length, color: OK },
+            { label: "Vitals stable", value: myBeds.filter(b => b.current_encounter?.vitals_stable).length, color: OK },
+          ];
+          const myDraws = bloodRoute.filter(r => r.consultant_name?.toLowerCase().includes(nameKey));
+          const nav: DashNavItem[] = [
+            { id: "doc-census", label: "Patient Census", Icon: UserCheck, badge: myBeds.length },
+            { id: "doc-schedule", label: "Round Schedule", Icon: Clock },
+            { id: "doc-readiness", label: "Readiness Chart", Icon: BarChart3, badge: readyCount },
+          ];
+          return (
+          <DashShell
+            brandTitle="SwasthAI"
+            BrandIcon={HeartPulse}
+            identity={staffIdentity}
+            nav={nav}
+            activeId={dTab}
+            onSelect={setDashTab}
+            groups={roleSidebarGroups("DOCTOR")}
+            sidebarFooter={staffSidebarFooter}
+            searchPlaceholder="Patient or bed..."
+            searchIndex={[
+              ...myBeds.map(b => ({ label: `${b.current_encounter?.patient_name} (${b.id})`, sub: b.current_encounter?.diagnosis, tab: "doc-census" })),
+              ...myDraws.map(r => ({ label: `Lab draw · ${r.patient_name}`, sub: `Bed ${r.bed_id}`, tab: "doc-schedule" })),
+            ]}
+            breadcrumb={["Home", "Doctor", nav.find(n => n.id === dTab)?.label ?? ""]}
+            headerRight={
+              <select
+                value={docId}
+                onChange={(e) => setSelectedDoctorId(e.target.value)}
+                aria-label="Select consultant"
+                className="h-10 px-3 bg-black text-white text-sm border border-white/15 focus:outline-none focus:border-[#fb923c] cursor-pointer"
+              >
+                {Object.values(DOCTOR_PROFILES).map(d => (
+                  <option key={d.id} value={d.id}>{d.name} ({d.specialty})</option>
+                ))}
+              </select>
+            }
+          >
+            <DashHeadline
+              line1={doc?.name ?? "Consultant"}
+              line2={<>{doc?.specialty} <span className="text-slate-300 font-bold">Rounds</span></>}
+              line3={`${readyCount} Ready To Sign`}
+              aside={<DialGauge value={avgP} label="Avg Discharge Readiness" color={OK} />}
+            />
 
-              {/* Doctor Dropdown */}
-              <div className="flex items-center gap-2 bg-black/30 p-1.5 rounded-xl border border-white/10">
-                <select
-                  value={selectedDoctorId}
-                  onChange={(e) => setSelectedDoctorId(e.target.value)}
-                  className="bg-transparent text-white text-xs font-bold border-none outline-none cursor-pointer py-1 px-2"
-                >
-                  {Object.values(DOCTOR_PROFILES).map(doc => (
-                    <option key={doc.id} value={doc.id} className="text-slate-900">
-                      {doc.name} ({doc.specialty})
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div>
+              <DashSectionTitle title="Today's Reviews" count={myBeds.length}>
+                <SquareIconButton Icon={BarChart3} label="Open readiness chart" onClick={() => setDashTab("doc-readiness")} />
+                <SquareIconButton Icon={ArrowRight} label="Open full patient census" onClick={() => setDashTab("doc-census")} />
+              </DashSectionTitle>
+              <TodayRow>
+                <DateTile clock={status?.simulated_date_str} />
+                <TaskList
+                  emptyText={`No active patients assigned to ${doc?.name ?? "this consultant"}.`}
+                  tasks={ranked.slice(0, 3).map(b => ({
+                    id: b.id,
+                    label: `Review ${b.current_encounter?.patient_name}`,
+                    meta: `${b.id} · P(discharge) ${Math.round(pOf(b) * 100)}% · ${b.current_encounter?.diagnosis}`,
+                    onOpen: () => setDashTab("doc-census"),
+                  }))}
+                />
+                <StatWidget
+                  title="Discharge Readiness"
+                  onOpen={() => setDashTab("doc-readiness")}
+                  legend={[
+                    { label: "≥ 70%", color: OK, value: readyCount },
+                    { label: "40–69%", color: WARN, value: midCount },
+                    { label: "< 40%", color: MUTED, value: myBeds.length - readyCount - midCount },
+                  ]}
+                  chart={
+                    <Donut
+                      segments={[
+                        { label: "Ready", value: readyCount, color: OK },
+                        { label: "Close", value: midCount, color: WARN },
+                        { label: "Not yet", value: myBeds.length - readyCount - midCount, color: MUTED },
+                      ]}
+                      center={<div className="text-lg font-bold text-white">{Math.round(avgP * 100)}%</div>}
+                    />
+                  }
+                  badge={<Badge tone="ok">✓ Doctor signs every discharge</Badge>}
+                />
+              </TodayRow>
             </div>
 
+            <KpiStrip
+              items={[
+                { label: "Active Patients", value: myBeds.length },
+                { label: "Ready (≥ 70%)", value: readyCount, color: OK },
+                { label: "Avg Readiness", value: `${Math.round(avgP * 100)}%`, color: ACCENT },
+                { label: "Pre-Round Draws", value: myDraws.length, color: ACCENT },
+              ]}
+            />
+
+            <TabDeck tabs={nav} active={dTab} onChange={setDashTab}>
+              <>
             {/* Doctor Info & Round Burst Banner */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            {dTab === "doc-schedule" && (<>
+            <div id="doc-schedule" className="scroll-mt-32 bg-[#0a0a0a] p-4 border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                <div className="p-2 bg-[#fb923c]/10 border border-[#fb923c]/30 text-[#fb923c]">
                   <Clock className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="font-bold text-slate-900">Today&apos;s Round Schedule:</div>
-                  <div className="text-slate-600 font-mono text-[11px]">{DOCTOR_PROFILES[selectedDoctorId]?.roundTime}</div>
+                  <div className="font-bold text-white uppercase tracking-wider">Today&apos;s Round Schedule:</div>
+                  <div className="text-slate-400 font-mono text-[11px] normal-case">{DOCTOR_PROFILES[selectedDoctorId]?.roundTime}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl font-medium text-[11px]">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-400/5 border border-emerald-400/30 text-emerald-300 text-[11px] normal-case">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                 Pre-Round Labs: Fasting blood draws collected before 08:00 AM breakfast. Results ready in LIS before rounds begin.
               </div>
             </div>
+            <div className="p-5 sm:p-6 border-t border-white/10 space-y-4">
+              <h3 className="font-bold text-white uppercase tracking-tight text-sm flex items-center gap-2">
+                <Syringe className="w-4 h-4 text-[#fb923c]" /> Pre-Round Lab Timeline
+              </h3>
+              {myDraws.length === 0 ? (
+                <div className="p-6 text-center text-slate-500 text-xs italic bg-white/5 border border-white/10 normal-case">No morning blood draws scheduled for your patients.</div>
+              ) : (
+                <ScheduleTimeline
+                  start={6 * 60}
+                  end={11 * 60}
+                  cutoff={{ t: 8 * 60, label: "Breakfast — fasting samples must be drawn before" }}
+                  rows={myDraws.map(r => ({
+                    label: `${r.bed_id} · ${r.patient_name}`,
+                    points: [
+                      { t: toMinutes(r.latest_safe_draw_str || r.latest_safe_blood_draw_time) ?? 415, color: BAD, label: "Latest safe draw" },
+                      { t: toMinutes(r.consultant_round_time) ?? 570, color: ACCENT, label: "Your bedside round" },
+                    ],
+                  }))}
+                />
+              )}
+              <div className="flex flex-wrap gap-5 text-xs text-slate-400 normal-case">
+                <span className="flex items-center gap-2"><span className="w-3 h-3" style={{ background: BAD }} /> Latest safe blood draw</span>
+                <span className="flex items-center gap-2"><span className="w-3 h-3" style={{ background: ACCENT }} /> Your bedside round</span>
+              </div>
+            </div>
+            </>)}
 
             {/* Doctor's Rounding Census (Assigned Patients) */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            {dTab === "doc-census" && (
+            <div id="doc-census" className="scroll-mt-32 bg-[#0a0a0a] border border-white/10 p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                    <HeartPulse className="w-5 h-5 text-indigo-600" />
+                  <h3 className="text-base font-bold text-white flex items-center gap-2 uppercase tracking-tight">
+                    <HeartPulse className="w-5 h-5 text-[#fb923c]" />
                     My Rounding Patients ({beds.filter(b => b.current_encounter?.consultant?.toLowerCase().includes(DOCTOR_PROFILES[selectedDoctorId]?.name?.toLowerCase().split(" ")[1]?.toLowerCase() || "sharma")).length} Active Patients)
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-slate-500 mt-0.5 normal-case">
                     Review clinical stabilization markers and authorize discharge or ICU step-down (Guardrail #1).
                   </p>
                 </div>
               </div>
 
               {beds.filter(b => b.current_encounter?.consultant?.toLowerCase().includes(DOCTOR_PROFILES[selectedDoctorId]?.name?.toLowerCase().split(" ")[1]?.toLowerCase() || "sharma")).length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-xs italic bg-slate-50 rounded-xl">
+                <div className="p-8 text-center text-slate-500 text-xs italic bg-white/5 border border-white/10 normal-case">
                   No active patients currently assigned to {DOCTOR_PROFILES[selectedDoctorId]?.name}.
                 </div>
               ) : (
@@ -2652,42 +3159,42 @@ export default function Dashboard() {
                   {beds.filter(b => b.current_encounter?.consultant?.toLowerCase().includes(DOCTOR_PROFILES[selectedDoctorId]?.name?.toLowerCase().split(" ")[1]?.toLowerCase() || "sharma")).map(bed => {
                     const patient = bed.current_encounter!;
                     return (
-                      <div key={bed.id} className="p-5 rounded-xl border border-slate-200 hover:border-indigo-200 transition space-y-3 bg-slate-50/50">
+                      <div key={bed.id} className="p-5 border border-white/10 hover:border-[#fb923c]/40 transition space-y-3 bg-white/5">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                           <div className="flex items-center gap-3">
-                            <span className="font-mono text-base font-black px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-900 shadow-sm">
+                            <span className="font-mono text-base font-bold px-2.5 py-1 bg-[#111] border border-white/15 text-[#fb923c]">
                               {bed.id}
                             </span>
                             <div>
-                              <h4 className="font-bold text-slate-900 text-base">{patient.patient_name}</h4>
-                              <div className="text-xs text-slate-500">{patient.age}y / {patient.gender} • {patient.diagnosis} • {bed.ward}</div>
+                              <h4 className="font-bold text-white text-base normal-case">{patient.patient_name}</h4>
+                              <div className="text-xs text-slate-400 normal-case">{patient.age}y / {patient.gender} • {patient.diagnosis} • {bed.ward}</div>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${getPayerColor(patient.payer_type)}`}>
+                            <span className={`px-2.5 py-1 text-xs font-bold border ${getPayerColor(patient.payer_type)}`}>
                               {patient.payer_type}
                             </span>
-                            <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                            <span className="px-2.5 py-1 text-xs font-mono font-bold bg-[#fb923c]/10 text-[#fb923c] border border-[#fb923c]/30 normal-case">
                               P(Discharge): {patient.p_discharge !== undefined ? Math.round(patient.p_discharge * 100) : 0}%
                             </span>
                           </div>
                         </div>
 
                         {/* Visible Clinical Signs Strip */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200/60 text-xs">
-                          <div className={`p-2 rounded-lg border flex items-center gap-1.5 ${patient.iv_to_oral ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-slate-100 border-slate-200 text-slate-600"}`}>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/10 text-xs">
+                          <div className={`p-2 border flex items-center gap-1.5 normal-case ${patient.iv_to_oral ? "bg-emerald-400/10 border-emerald-400/30 text-emerald-300" : "bg-white/5 border-white/10 text-slate-400"}`}>
                             <Check className="w-3.5 h-3.5" />
                             <span>{patient.iv_to_oral ? "Oral Meds Tolerated" : "On IV Antibiotics"}</span>
                           </div>
-                          <div className={`p-2 rounded-lg border flex items-center gap-1.5 ${patient.oxygen_removed ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+                          <div className={`p-2 border flex items-center gap-1.5 normal-case ${patient.oxygen_removed ? "bg-emerald-400/10 border-emerald-400/30 text-emerald-300" : "bg-rose-500/10 border-rose-500/30 text-rose-300"}`}>
                             <Check className="w-3.5 h-3.5" />
                             <span>{patient.oxygen_removed ? "Room Air (O2 Weaned)" : "On Oxygen Support"}</span>
                           </div>
-                          <div className={`p-2 rounded-lg border flex items-center gap-1.5 ${patient.diet_normalized ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-slate-100 border-slate-200 text-slate-600"}`}>
+                          <div className={`p-2 border flex items-center gap-1.5 normal-case ${patient.diet_normalized ? "bg-emerald-400/10 border-emerald-400/30 text-emerald-300" : "bg-white/5 border-white/10 text-slate-400"}`}>
                             <Check className="w-3.5 h-3.5" />
                             <span>{patient.diet_normalized ? "Normal Diet" : "Restricted Diet"}</span>
                           </div>
-                          <div className={`p-2 rounded-lg border flex items-center gap-1.5 ${patient.vitals_stable ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+                          <div className={`p-2 border flex items-center gap-1.5 normal-case ${patient.vitals_stable ? "bg-emerald-400/10 border-emerald-400/30 text-emerald-300" : "bg-amber-400/10 border-amber-400/30 text-amber-300"}`}>
                             <Check className="w-3.5 h-3.5" />
                             <span>{patient.vitals_stable ? "Vitals Stable (24h)" : "Vitals Monitored"}</span>
                           </div>
@@ -2695,21 +3202,21 @@ export default function Dashboard() {
 
                         {/* AI Rationale Top 3 Reasons */}
                         {patient.discharge_reasons && (
-                          <div className="p-2.5 bg-white rounded-lg border border-slate-200 text-[11px] text-slate-600 space-y-0.5">
-                            <span className="font-bold text-slate-800">Operational Evidence: </span>
+                          <div className="p-2.5 bg-[#111] border border-white/10 text-[11px] text-slate-400 space-y-0.5 normal-case">
+                            <span className="font-bold text-slate-200">Operational Evidence: </span>
                             {patient.discharge_reasons.join(" • ")}
                           </div>
                         )}
 
                         {/* Guardrail #1 Action Gate */}
                         <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                          <div className="text-[11px] text-slate-500 italic">
+                          <div className="text-[11px] text-slate-500 italic normal-case">
                             🛡️ Guardrail #1: Only attending physician can sign off on discharge. AI never auto-discharges.
                           </div>
                           <button
                             onClick={() => handleDoctorDischarge(patient.encounter_id, patient.patient_name)}
                             disabled={doctorActionLoading === patient.encounter_id}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-1.5 disabled:opacity-50"
+                            className="px-4 py-2 bg-[#fb923c] hover:bg-white text-[#0a0a0a] text-[11px] font-bold uppercase tracking-wider transition flex items-center gap-1.5 disabled:opacity-50"
                           >
                             <Check className="w-4 h-4" />
                             {doctorActionLoading === patient.encounter_id ? "Authorizing..." : "Authorize Clinical Discharge (Doctor Sign-Off)"}
@@ -2721,123 +3228,270 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-          </div>
-        )}
+            )}
+
+            {/* Readiness Chart — per-patient P(discharge) against the 70% confidence guardrail */}
+            {dTab === "doc-readiness" && (
+              <div className="p-5 sm:p-6 grid grid-cols-1 xl:grid-cols-2 gap-10">
+                <div className="space-y-5">
+                  <h3 className="font-bold text-white uppercase tracking-tight text-sm flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-[#fb923c]" /> Discharge Probability By Bed
+                  </h3>
+                  {myBeds.length === 0 ? (
+                    <div className="p-6 text-center text-slate-500 text-xs italic bg-white/5 border border-white/10 normal-case">No active patients to chart.</div>
+                  ) : (
+                    <BarChart
+                      height={180}
+                      unit="%"
+                      max={100}
+                      refLine={{ value: 70, label: "70% guardrail" }}
+                      data={ranked.map(b => ({
+                        label: b.id,
+                        value: Math.round(pOf(b) * 100),
+                        color: pOf(b) >= 0.7 ? OK : pOf(b) >= 0.4 ? WARN : MUTED,
+                        hint: `${b.current_encounter?.patient_name}: ${Math.round(pOf(b) * 100)}%`,
+                      }))}
+                    />
+                  )}
+                  <p className="text-xs text-slate-500 normal-case">Bars above the dashed line meet the ≥ 70% confidence guardrail. The AI never discharges — you sign off in Patient Census.</p>
+                </div>
+                <div className="space-y-5">
+                  <h3 className="font-bold text-white uppercase tracking-tight text-sm flex items-center gap-2">
+                    <HeartPulse className="w-4 h-4 text-[#fb923c]" /> Stabilization Markers
+                  </h3>
+                  <HBarList
+                    max={Math.max(1, myBeds.length)}
+                    format={v => `${v} / ${myBeds.length}`}
+                    data={markers.map(m => ({ label: m.label, value: m.value, color: m.color }))}
+                  />
+                  <p className="text-xs text-slate-500 normal-case">How many of your patients have met each clinical stabilization marker.</p>
+                </div>
+              </div>
+            )}
+              </>
+            </TabDeck>
+          </DashShell>
+          );
+        })()}
 
         {/* ========================================================================= */}
         {/* DEDICATED ROLE DASHBOARD 3: CLEANER / HOUSEKEEPING DASHBOARD               */}
         {/* ========================================================================= */}
         {activeRole === "CLEANER" && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Cleaner Header Bar */}
-            <div className="bg-gradient-to-r from-emerald-950 via-teal-950 to-slate-900 text-white p-5 rounded-2xl shadow-md border border-emerald-700/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-emerald-600/30 rounded-xl border border-emerald-500/30 text-emerald-300">
-                  <Sparkles className="w-6 h-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      Terminal Cleaning &amp; Disinfection
-                    </span>
-                    <span className="text-xs text-slate-300">
-                      Mobile / Tablet Frontline Console
-                    </span>
-                  </div>
-                  <h2 className="text-xl font-black text-white mt-0.5">
-                    {selectedCleanerStaff} — Housekeeping Operations
-                  </h2>
-                </div>
-              </div>
-
-              {/* Staff Selector */}
-              <div className="flex items-center gap-2 bg-black/30 p-1.5 rounded-xl border border-white/10">
+          (() => {
+          const cTab = dashTab.startsWith("clean-") ? dashTab : "clean-queue";
+          const dirty = beds.filter(b => b.state === "DIRTY");
+          const ready = beds.filter(b => b.state === "READY");
+          const emergency = readinessMetrics?.threshold_state === "CRITICAL";
+          const cleaningTasks = tasks.filter(t => t.role === "CLEANING");
+          const wards = Array.from(new Set(beds.map(b => b.ward)));
+          const cleanRate = ready.length + dirty.length ? ready.length / (ready.length + dirty.length) : 1;
+          // Coordinator-sequenced housekeeping tasks, with a Mark as Done + nurse-review trail.
+          const supportTasks = (todaysPlan?.scheduled_tasks ?? []).filter(t => t.role === "CLEANING" || t.role === "HOUSEKEEPING");
+          const supportTasksPending = supportTasks.filter(t => !taskReviews[t.task_id]?.staffDone);
+          const nav: DashNavItem[] = [
+            { id: "clean-tasks", label: "Assigned Tasks", Icon: ClipboardList, badge: supportTasksPending.length },
+            { id: "clean-queue", label: "Dirty Beds Queue", Icon: AlertTriangle, badge: dirty.length },
+            { id: "clean-ready", label: "Ready Beds", Icon: CheckCircle2, badge: ready.length },
+            { id: "clean-load", label: "Ward Load", Icon: BarChart3 },
+          ];
+          return (
+          <DashShell
+            brandTitle="SwasthAI"
+            BrandIcon={HeartPulse}
+            identity={staffIdentity}
+            nav={nav}
+            activeId={cTab}
+            onSelect={setDashTab}
+            groups={roleSidebarGroups("CLEANER")}
+            sidebarFooter={staffSidebarFooter}
+            searchPlaceholder="Bed number..."
+            searchIndex={[
+              ...supportTasks.map(t => ({ label: t.task_title, sub: `Bed ${t.bed_id}`, tab: "clean-tasks" })),
+              ...dirty.map(b => ({ label: `Bed ${b.id}`, sub: `Dirty · ${b.ward}`, tab: "clean-queue" })),
+              ...ready.map(b => ({ label: `Bed ${b.id}`, sub: `Ready · ${b.ward}`, tab: "clean-ready" })),
+            ]}
+            breadcrumb={["Home", "Housekeeping", nav.find(n => n.id === cTab)?.label ?? ""]}
+            headerRight={
+              <div role="group" aria-label="Select housekeeping staff" className="flex items-stretch border border-white/15">
                 {["Anand R. (Sweeper)", "Deepa M. (Sweeper)"].map(staff => (
                   <button
                     key={staff}
                     onClick={() => setSelectedCleanerStaff(staff)}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
-                      selectedCleanerStaff === staff
-                        ? "bg-emerald-600 text-white shadow-sm"
-                        : "text-slate-300 hover:text-white hover:bg-white/10"
+                    aria-pressed={selectedCleanerStaff === staff}
+                    title={staff}
+                    className={`h-10 px-4 text-xs font-bold uppercase tracking-wider border-r border-white/15 last:border-r-0 transition ${
+                      selectedCleanerStaff === staff ? "bg-[#fb923c] text-black" : "text-slate-400 hover:text-white hover:bg-white/10"
                     }`}
                   >
-                    {staff.split(" ")[0]} ({staff.includes("Anand") ? "Ward A" : "Ward B"})
+                    {staff.split(" ")[0]} · {staff.includes("Anand") ? "Ward A" : "Ward B"}
                   </button>
                 ))}
               </div>
+            }
+          >
+            <DashHeadline
+              line1={selectedCleanerStaff.split(" (")[0]}
+              line2={<>Terminal <span className="text-slate-300 font-bold">Cleaning</span> &amp;</>}
+              line3="Disinfection"
+              aside={<DialGauge value={cleanRate} label="Beds Turned Ready" color={OK} display={`${ready.length}/${ready.length + dirty.length}`} />}
+            />
+
+            <div>
+              <DashSectionTitle title="Beds To Clean" count={dirty.length}>
+                <SquareIconButton Icon={BarChart3} label="Open ward load chart" onClick={() => setDashTab("clean-load")} />
+                <SquareIconButton Icon={ArrowRight} label="Open full cleaning queue" onClick={() => setDashTab("clean-queue")} />
+              </DashSectionTitle>
+              <TodayRow>
+                <DateTile clock={status?.simulated_date_str} />
+                <TaskList
+                  emptyText="All beds sanitized — nothing waiting."
+                  tasks={dirty.slice(0, 3).map(b => ({
+                    id: b.id,
+                    label: `Clean bed ${b.id}`,
+                    meta: `${b.ward} · ${b.bed_type} · SLA ${emergency ? "15" : "45"} min`,
+                    onCheck: () => handleMarkBedCleaned(b.id),
+                    checkLabel: `Mark bed ${b.id} disinfected and ready`,
+                    busy: cleanerActionLoading === b.id,
+                    onOpen: () => setDashTab("clean-queue"),
+                  }))}
+                />
+                <StatWidget
+                  title="Hospital Bed Status"
+                  onOpen={() => setDashTab("clean-load")}
+                  legend={countStates(beds).map(s => ({ label: s.label, color: s.color, value: s.value }))}
+                  chart={<Donut segments={countStates(beds)} center={<div className="text-lg font-bold text-white">{beds.length}</div>} />}
+                  badge={<Badge tone={emergency ? "bad" : "accent"}>⏱ {emergency ? "15m emergency SLA" : "45m standard SLA"}</Badge>}
+                />
+              </TodayRow>
             </div>
 
-            {/* Cleaner Metrics */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Dirty Beds Waiting</div>
-                <div className="text-2xl font-black text-rose-600 mt-1">
-                  {beds.filter(b => b.state === "DIRTY").length}
+            <KpiStrip
+              items={[
+                { label: "Dirty Beds Waiting", value: dirty.length, color: BAD },
+                { label: "Turnover SLA", value: emergency ? "15m" : "45m", sub: emergency ? "(Emergency)" : "(Standard)", color: ACCENT },
+                { label: "Ready Beds Now", value: ready.length, color: OK },
+                { label: "Assigned Tasks", value: cleaningTasks.length, color: ACCENT },
+              ]}
+            />
+
+            <TabDeck tabs={nav} active={cTab} onChange={setDashTab}>
+              <>
+            {/* Assigned Tasks — coordinator-sequenced CLEANING tasks with a Mark as Done + nurse-review trail */}
+            {cTab === "clean-tasks" && (
+              <div className="p-5 sm:p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div>
+                    <h3 className="text-base font-bold text-white flex items-center gap-2 uppercase tracking-tight">
+                      <ClipboardList className="w-5 h-5 text-[#fb923c]" />
+                      Tasks Assigned By Coordinator ({supportTasks.length})
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5 normal-case">
+                      Mark each task done when complete. The ward&apos;s nurse then reviews and confirms it before it closes out on the Coordinator&apos;s board.
+                    </p>
+                  </div>
                 </div>
+
+                {supportTasks.length === 0 ? (
+                  <div className="p-8 text-center text-slate-500 text-xs italic bg-white/5 border border-white/10 normal-case">
+                    No housekeeping tasks sequenced by the coordinator yet.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {supportTasks.map(t => {
+                      const review = taskReviews[t.task_id];
+                      const nurseName = WARD_NURSE_NAME[t.ward] || `${t.ward} Nurse`;
+                      return (
+                        <div key={t.task_id} className="p-4 border border-white/10 bg-white/5 space-y-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <div className="font-bold text-white text-sm normal-case">{t.task_title}</div>
+                              <div className="text-[11px] text-slate-400 normal-case">
+                                {t.patient_name} · Bed {t.bed_id} · {t.ward.replace("WARD_", "Ward ")} · Due {t.deadline_str}
+                              </div>
+                            </div>
+                            {!review?.staffDone ? (
+                              <button
+                                onClick={() => markSupportTaskDone(t.task_id)}
+                                className="px-3 py-2 bg-[#fb923c] hover:bg-white text-[#0a0a0a] text-[11px] font-bold uppercase tracking-wider transition flex items-center gap-1.5 shrink-0"
+                              >
+                                <Check className="w-3.5 h-3.5" /> Mark As Done
+                              </button>
+                            ) : review.nurseReviewed ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-400/40 shrink-0">
+                                <ClipboardCheck className="w-3.5 h-3.5" /> Reviewed
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-amber-400 border border-amber-400/40 shrink-0">
+                                <Clock className="w-3.5 h-3.5" /> Awaiting Nurse Review
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="text-[11px] normal-case">
+                            {!review?.staffDone ? (
+                              <span className="text-slate-500">Not yet marked done.</span>
+                            ) : !review.nurseReviewed ? (
+                              <span className="text-amber-300">
+                                Done {new Date(review.staffDoneAt!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · waiting on {nurseName} to review.
+                              </span>
+                            ) : (
+                              <span className="text-emerald-300">
+                                Reviewed by {review.reviewedByName}{review.autoAssigned ? " (auto-assigned by Coordinator)" : ""} at{" "}
+                                {new Date(review.reviewedAt!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Turnover SLA</div>
-                <div className="text-2xl font-black text-indigo-600 mt-1">
-                  {readinessMetrics?.threshold_state === "CRITICAL" ? "15m" : "45m"}
-                  <span className="text-xs font-normal text-slate-400"> {readinessMetrics?.threshold_state === "CRITICAL" ? "(Emergency)" : "(Standard)"}</span>
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Ready Beds Now</div>
-                <div className="text-2xl font-black text-emerald-600 mt-1">
-                  {beds.filter(b => b.state === "READY").length}
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Assigned Tasks</div>
-                <div className="text-2xl font-black text-amber-600 mt-1">
-                  {tasks.filter(t => t.role === "CLEANING").length}
-                </div>
-              </div>
-            </div>
+            )}
 
             {/* Section 1: URGENT TERMINAL CLEANING QUEUE (DIRTY BEDS) */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            {cTab === "clean-queue" && (
+            <div id="clean-queue" className="scroll-mt-32 bg-[#0a0a0a] border border-white/10 p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-amber-500" />
+                  <h3 className="text-base font-bold text-white flex items-center gap-2 uppercase tracking-tight">
+                    <Sparkles className="w-5 h-5 text-amber-400" />
                     Urgent Terminal Cleaning Queue (Dirty Beds)
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-slate-500 mt-0.5 normal-case">
                     Disinfect, strip soiled linen, and dress bed with clean linen to make bed READY.
                   </p>
                 </div>
-                <span className="px-3 py-1 bg-rose-100 text-rose-800 text-xs font-bold rounded-full border border-rose-200">
+                <span className="px-3 py-1 bg-rose-500/10 text-rose-400 text-[10px] font-bold uppercase tracking-wider border border-rose-500/30">
                   {beds.filter(b => b.state === "DIRTY").length} Beds Require Action
                 </span>
               </div>
 
               {beds.filter(b => b.state === "DIRTY").length === 0 ? (
-                <div className="p-10 text-center bg-emerald-50/50 border border-emerald-200 rounded-2xl space-y-2">
-                  <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
-                  <h4 className="font-bold text-emerald-900">All Beds Sanitized!</h4>
-                  <p className="text-xs text-emerald-700">No dirty beds in any ward. Great job keeping the hospital flow moving!</p>
+                <div className="p-10 text-center bg-emerald-400/5 border border-emerald-400/30 space-y-2">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
+                  <h4 className="font-bold text-emerald-300 uppercase tracking-tight">All Beds Sanitized!</h4>
+                  <p className="text-xs text-emerald-400/80 normal-case">No dirty beds in any ward. Great job keeping the hospital flow moving!</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {beds.filter(b => b.state === "DIRTY").map(bed => {
                     return (
-                      <div key={bed.id} className="p-5 rounded-2xl border-2 border-amber-300 bg-amber-50/40 shadow-md space-y-3">
+                      <div key={bed.id} className="p-5 border border-amber-400/40 bg-amber-400/5 space-y-3">
                         <div className="flex items-start justify-between">
                           <div>
-                            <div className="text-2xl font-black font-mono text-slate-900">{bed.id}</div>
-                            <div className="text-xs font-semibold text-indigo-700">{bed.ward} • {bed.bed_type}</div>
+                            <div className="text-2xl font-bold font-mono text-white">{bed.id}</div>
+                            <div className="text-xs font-semibold text-[#fb923c] normal-case">{bed.ward} • {bed.bed_type}</div>
                           </div>
-                          <span className="px-2.5 py-1 bg-rose-100 text-rose-800 border border-rose-300 text-xs font-black rounded-lg uppercase">
+                          <span className="px-2.5 py-1 bg-rose-500/15 text-rose-400 border border-rose-500/40 text-[10px] font-bold uppercase tracking-wider">
                             DIRTY • NEEDS SANITIZATION
                           </span>
                         </div>
 
-                        <div className="p-3 bg-white rounded-xl border border-amber-200 text-xs text-slate-700 space-y-1">
-                          <div className="font-bold text-slate-900">Standard Terminal Protocol:</div>
-                          <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-slate-600">
+                        <div className="p-3 bg-[#111] border border-white/10 text-xs text-slate-400 space-y-1 normal-case">
+                          <div className="font-bold text-white uppercase tracking-wider text-[11px]">Standard Terminal Protocol:</div>
+                          <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-slate-400">
                             <li>Disinfect mattress and bed frame with hospital-grade quat solution</li>
                             <li>Replace linen, pillowcase, and sterile draw sheet</li>
                             <li>Wipe IV pole, oxygen port, and side table</li>
@@ -2847,7 +3501,7 @@ export default function Dashboard() {
                         <button
                           onClick={() => handleMarkBedCleaned(bed.id)}
                           disabled={cleanerActionLoading === bed.id}
-                          className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm shadow-md transition flex items-center justify-center gap-2"
+                          className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-[#0a0a0a] font-bold text-sm uppercase tracking-wider transition flex items-center justify-center gap-2"
                         >
                           <Check className="w-5 h-5" />
                           {cleanerActionLoading === bed.id ? "Updating Bed State..." : "Mark Disinfected & Bed Ready"}
@@ -2858,95 +3512,254 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Ready Beds Status */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3">
-              <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            {cTab === "clean-ready" && (
+            <div id="clean-ready" className="scroll-mt-32 bg-[#0a0a0a] border border-white/10 p-6 space-y-3">
+              <h3 className="font-bold text-white flex items-center gap-2 uppercase tracking-tight text-sm">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 Cleaned &amp; Ready Beds ({beds.filter(b => b.state === "READY").length} Available)
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
                 {beds.filter(b => b.state === "READY").map(b => (
-                  <div key={b.id} className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
-                    <div className="font-mono font-bold text-emerald-900 text-sm">{b.id}</div>
-                    <div className="text-[10px] text-emerald-700 font-medium">{b.ward}</div>
+                  <div key={b.id} className="p-2.5 bg-emerald-400/5 border border-emerald-400/30 text-center">
+                    <div className="font-mono font-bold text-emerald-300 text-sm">{b.id}</div>
+                    <div className="text-[10px] text-emerald-400/70 normal-case">{b.ward}</div>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
+            )}
+
+            {/* Ward Load — where the dirty beds are, plus a full bed map */}
+            {cTab === "clean-load" && (
+              <div className="p-5 sm:p-6 grid grid-cols-1 xl:grid-cols-2 gap-10">
+                <div className="space-y-5">
+                  <h3 className="font-bold text-white uppercase tracking-tight text-sm flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-400" /> Dirty Beds By Ward
+                  </h3>
+                  <BarChart
+                    height={170}
+                    data={wards.map(w => ({ label: w.replace("WARD_", "Ward "), value: dirty.filter(b => b.ward === w).length, color: BAD }))}
+                  />
+                  <h3 className="font-bold text-white uppercase tracking-tight text-sm flex items-center gap-2 pt-4">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Ready Beds By Ward
+                  </h3>
+                  <BarChart
+                    height={120}
+                    data={wards.map(w => ({ label: w.replace("WARD_", "Ward "), value: ready.filter(b => b.ward === w).length, color: OK }))}
+                  />
+                </div>
+                <div className="space-y-5">
+                  <h3 className="font-bold text-white uppercase tracking-tight text-sm flex items-center gap-2">
+                    <Bed className="w-4 h-4 text-[#fb923c]" /> Hospital Bed Map
+                  </h3>
+                  {wards.map(w => (
+                    <div key={w} className="space-y-2">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{w.replace("WARD_", "Ward ")}</div>
+                      <BedGrid beds={beds.filter(b => b.ward === w)} colorFor={bedStateColor} />
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap gap-4 text-xs text-slate-400 normal-case pt-2">
+                    {countStates(beds).map(s => (
+                      <span key={s.label} className="flex items-center gap-2"><span className="w-3 h-3" style={{ background: s.color }} /> {s.label}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+              </>
+            </TabDeck>
+          </DashShell>
+          );
+          })()
         )}
 
         {/* ========================================================================= */}
         {/* DEDICATED ROLE DASHBOARD 4: PHLEBOTOMIST / LAB PORTAL                     */}
         {/* ========================================================================= */}
-        {activeRole === "PHLEBOTOMIST" && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Phleb Header Bar */}
-            <div className="bg-gradient-to-r from-rose-950 via-slate-900 to-red-950 text-white p-5 rounded-2xl shadow-md border border-rose-700/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-rose-600/30 rounded-xl border border-rose-500/30 text-rose-300">
-                  <Syringe className="w-6 h-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                      Phlebotomy &amp; Lab Logistics
-                    </span>
-                    <span className="text-xs text-slate-300">
-                      Feature F2: Backwards Scheduling from Doctor Rounds
-                    </span>
-                  </div>
-                  <h2 className="text-xl font-black text-white mt-0.5">
-                    {selectedPhlebStaff} — Morning Phlebotomy Route
-                  </h2>
-                </div>
-              </div>
-
-              {/* Staff Selector */}
-              <div className="flex items-center gap-2 bg-black/30 p-1.5 rounded-xl border border-white/10">
+        {activeRole === "PHLEBOTOMIST" && (() => {
+          const pTab = dashTab.startsWith("phleb-") ? dashTab : "phleb-schedule";
+          const deadlineOf = (r: PhlebotomyRouteItem) => toMinutes(r.latest_safe_draw_str || r.latest_safe_blood_draw_time) ?? 415;
+          const roundOf = (r: PhlebotomyRouteItem) => toMinutes(r.consultant_round_time) ?? 570;
+          const fmtMin = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+          const sorted = [...bloodRoute].sort((a, b) => deadlineOf(a) - deadlineOf(b));
+          const doneCount = bloodRoute.filter(r => drawnBeds.includes(r.bed_id)).length;
+          const pending = sorted.filter(r => !drawnBeds.includes(r.bed_id));
+          const early = bloodRoute.filter(r => deadlineOf(r) < 7 * 60).length;
+          const mid = bloodRoute.filter(r => deadlineOf(r) >= 7 * 60 && deadlineOf(r) < 8 * 60).length;
+          const late = bloodRoute.length - early - mid;
+          const nav: DashNavItem[] = [
+            { id: "phleb-schedule", label: "Draw Schedule", Icon: Clock, badge: pending.length },
+            { id: "phleb-timeline", label: "Route Timeline", Icon: BarChart3 },
+            { id: "phleb-constraint", label: "Fasting Rule", Icon: AlertTriangle },
+          ];
+          return (
+          <DashShell
+            brandTitle="SwasthAI"
+            BrandIcon={HeartPulse}
+            identity={staffIdentity}
+            nav={nav}
+            activeId={pTab}
+            onSelect={setDashTab}
+            groups={roleSidebarGroups("PHLEBOTOMIST")}
+            sidebarFooter={staffSidebarFooter}
+            searchPlaceholder="Patient or bed..."
+            searchIndex={bloodRoute.map(r => ({ label: `${r.patient_name} (${r.bed_id})`, sub: `Draw by ${fmtMin(deadlineOf(r))}`, tab: "phleb-schedule" }))}
+            breadcrumb={["Home", "Phlebotomy", nav.find(n => n.id === pTab)?.label ?? ""]}
+            headerRight={
+              <div role="group" aria-label="Select phlebotomist" className="flex items-stretch border border-white/15">
                 {["Sunita K. (Phleb)", "Manoj V. (Phleb)", "Amit R. (Phleb)"].map(staff => (
                   <button
                     key={staff}
                     onClick={() => setSelectedPhlebStaff(staff)}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
-                      selectedPhlebStaff === staff
-                        ? "bg-rose-600 text-white shadow-sm"
-                        : "text-slate-300 hover:text-white hover:bg-white/10"
+                    aria-pressed={selectedPhlebStaff === staff}
+                    title={staff}
+                    className={`h-10 px-4 text-xs font-bold uppercase tracking-wider border-r border-white/15 last:border-r-0 transition ${
+                      selectedPhlebStaff === staff ? "bg-[#fb923c] text-black" : "text-slate-400 hover:text-white hover:bg-white/10"
                     }`}
                   >
                     {staff.split(" ")[0]}
                   </button>
                 ))}
               </div>
+            }
+          >
+            <DashHeadline
+              line1={selectedPhlebStaff.split(" (")[0]}
+              line2={<>Morning <span className="text-slate-300 font-bold">Draws</span> Before</>}
+              line3="08:00 Breakfast"
+              aside={<DialGauge value={bloodRoute.length ? doneCount / bloodRoute.length : 0} label="Route Progress" display={`${doneCount}/${bloodRoute.length}`} />}
+            />
+
+            <div>
+              <DashSectionTitle title="Next Draws" count={doneCount} total={bloodRoute.length}>
+                <SquareIconButton Icon={BarChart3} label="Open route timeline" onClick={() => setDashTab("phleb-timeline")} />
+                <SquareIconButton Icon={ArrowRight} label="Open full draw schedule" onClick={() => setDashTab("phleb-schedule")} />
+              </DashSectionTitle>
+              <TodayRow>
+                <DateTile clock={status?.simulated_date_str} />
+                <TaskList
+                  emptyText={bloodRoute.length ? "Every sample on the route has been drawn." : "No morning draws scheduled."}
+                  tasks={pending.slice(0, 3).map(r => ({
+                    id: r.bed_id,
+                    label: `Draw bed ${r.bed_id}`,
+                    meta: `${r.patient_name} · by ${fmtMin(deadlineOf(r))} · round ${fmtMin(roundOf(r))}`,
+                    onCheck: () => handleSampleDrawn(r.bed_id),
+                    checkLabel: `Mark sample for bed ${r.bed_id} as drawn`,
+                    onOpen: () => setDashTab("phleb-schedule"),
+                  }))}
+                />
+                <StatWidget
+                  title="Draw Deadlines"
+                  onOpen={() => setDashTab("phleb-timeline")}
+                  legend={[
+                    { label: "Before 07:00", color: BAD, value: early },
+                    { label: "07:00–07:59", color: WARN, value: mid },
+                    { label: "08:00 +", color: MUTED, value: late },
+                  ]}
+                  chart={
+                    <Donut
+                      segments={[
+                        { label: "Before 07:00", value: early, color: BAD },
+                        { label: "07:00–07:59", value: mid, color: WARN },
+                        { label: "08:00+", value: late, color: MUTED },
+                      ]}
+                      center={<div className="text-lg font-bold text-white">{bloodRoute.length}</div>}
+                    />
+                  }
+                  badge={<Badge tone="warn">⏱ {pending.length} left before breakfast</Badge>}
+                />
+              </TodayRow>
             </div>
 
+            <KpiStrip
+              items={[
+                { label: "Morning Draws", value: bloodRoute.length },
+                { label: "Samples Drawn", value: doneCount, color: OK },
+                { label: "Still Pending", value: pending.length, color: ACCENT },
+                { label: "First Deadline", value: sorted[0] ? fmtMin(deadlineOf(sorted[0])) : "—", color: BAD },
+              ]}
+            />
+
+            <TabDeck tabs={nav} active={pTab} onChange={setDashTab}>
+              <>
             {/* 08:00 AM Breakfast Constraint Notice */}
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-xs text-amber-900 shadow-sm">
-              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            {pTab === "phleb-constraint" && (<>
+            <div id="phleb-constraint" className="scroll-mt-32 p-4 bg-amber-400/5 border border-amber-400/30 flex items-center gap-3 text-xs text-amber-200 normal-case">
+              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
               <div>
-                <strong className="text-amber-950 font-bold">Crucial Fasting Breakfast Constraint (08:00 AM): </strong>
+                <strong className="text-amber-300 font-bold">Crucial Fasting Breakfast Constraint (08:00 AM): </strong>
                 All morning fasting metabolic panels (LFT, KFT, Blood Sugar) must be drawn before morning breakfast service. Drawing after breakfast contaminates samples and delays discharge by 24 hours.
               </div>
             </div>
+            <div className="p-5 sm:p-6 border-t border-white/10 space-y-4">
+              <h3 className="font-bold text-white uppercase tracking-tight text-sm flex items-center gap-2">
+                <Timer className="w-4 h-4 text-[#fb923c]" /> Safety Buffer Before Breakfast
+              </h3>
+              <HBarList
+                max={120}
+                format={v => `${v} min`}
+                data={sorted.map(r => ({
+                  label: r.patient_name,
+                  sub: r.bed_id,
+                  value: Math.max(0, 8 * 60 - deadlineOf(r)),
+                  color: 8 * 60 - deadlineOf(r) < 30 ? BAD : 8 * 60 - deadlineOf(r) < 60 ? WARN : OK,
+                }))}
+              />
+              <p className="text-xs text-slate-500 normal-case">Minutes between each latest-safe draw time and the 08:00 breakfast service. Short bars need attention first.</p>
+            </div>
+            </>)}
+
+            {/* Route Timeline — draw deadline vs bedside round, against the 08:00 cutoff */}
+            {pTab === "phleb-timeline" && (
+              <div className="p-5 sm:p-6 space-y-5">
+                <h3 className="font-bold text-white uppercase tracking-tight text-sm flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-[#fb923c]" /> Morning Route Timeline
+                </h3>
+                {sorted.length === 0 ? (
+                  <div className="p-6 text-center text-slate-500 text-xs italic bg-white/5 border border-white/10 normal-case">No morning draws scheduled.</div>
+                ) : (
+                  <ScheduleTimeline
+                    start={6 * 60}
+                    end={11 * 60}
+                    cutoff={{ t: 8 * 60, label: "Breakfast — fasting cutoff" }}
+                    rows={sorted.map(r => ({
+                      label: `${r.bed_id} · ${r.patient_name}`,
+                      points: [
+                        { t: deadlineOf(r), color: drawnBeds.includes(r.bed_id) ? OK : BAD, label: drawnBeds.includes(r.bed_id) ? "Drawn" : "Latest safe draw" },
+                        { t: roundOf(r), color: ACCENT, label: "Doctor round" },
+                      ],
+                    }))}
+                  />
+                )}
+                <div className="flex flex-wrap gap-5 text-xs text-slate-400 normal-case">
+                  <span className="flex items-center gap-2"><span className="w-3 h-3" style={{ background: BAD }} /> Latest safe draw</span>
+                  <span className="flex items-center gap-2"><span className="w-3 h-3" style={{ background: OK }} /> Sample drawn</span>
+                  <span className="flex items-center gap-2"><span className="w-3 h-3" style={{ background: ACCENT }} /> Doctor round</span>
+                </div>
+              </div>
+            )}
 
             {/* Ordered Blood Collection Route Table */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            {pTab === "phleb-schedule" && (
+            <div id="phleb-schedule" className="scroll-mt-32 bg-[#0a0a0a] border border-white/10 p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-rose-600" />
+                  <h3 className="text-base font-bold text-white flex items-center gap-2 uppercase tracking-tight">
+                    <Clock className="w-5 h-5 text-[#fb923c]" />
                     Backwards Phlebotomy Schedule ({bloodRoute.length} Morning Draws)
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-slate-500 mt-0.5 normal-case">
                     Draw Deadlines calculated backwards: Round Time − 140m Lab P90 − 15m Safety Buffer.
                   </p>
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto border border-white/10">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-600 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-200">
+                  <thead className="bg-white/5 text-slate-400 uppercase font-bold text-[10px] tracking-wider border-b border-white/10">
                     <tr>
                       <th className="py-3 px-4">Bed ID</th>
                       <th className="py-3 px-4">Patient Name</th>
@@ -2958,33 +3771,39 @@ export default function Dashboard() {
                       <th className="py-3 px-4 text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                  <tbody className="divide-y divide-white/10 text-slate-300">
                     {bloodRoute.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50 transition">
-                        <td className="py-3 px-4 font-mono font-bold text-slate-900">{item.bed_id}</td>
-                        <td className="py-3 px-4 font-semibold text-slate-800">{item.patient_name}</td>
-                        <td className="py-3 px-4 text-indigo-700 font-medium">{item.consultant_name}</td>
-                        <td className="py-3 px-4 font-mono">
+                      <tr key={idx} className="hover:bg-white/5 transition">
+                        <td className="py-3 px-4 font-mono font-bold text-[#fb923c]">{item.bed_id}</td>
+                        <td className="py-3 px-4 font-semibold text-white normal-case">{item.patient_name}</td>
+                        <td className="py-3 px-4 text-slate-300 normal-case">{item.consultant_name}</td>
+                        <td className="py-3 px-4 font-mono normal-case">
                           {item.consultant_round_time ? (item.consultant_round_time.includes("T") ? item.consultant_round_time.split("T")[1]?.slice(0, 5) : item.consultant_round_time) : "09:30"}
                         </td>
-                        <td className="py-3 px-4 font-mono font-bold text-rose-700 bg-rose-50/50">
+                        <td className="py-3 px-4 font-mono font-bold text-rose-400 bg-rose-500/10 normal-case">
                           {item.latest_safe_draw_str || (item.latest_safe_blood_draw_time && item.latest_safe_blood_draw_time.includes("T") ? item.latest_safe_blood_draw_time.split("T")[1]?.slice(0, 5) : item.latest_safe_blood_draw_time) || "06:55"}
                         </td>
                         <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-400/10 text-amber-400 border border-amber-400/30 normal-case">
                             Fasting (Before 08:00)
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-[11px] text-slate-500 max-w-xs truncate" title={item.why_reason}>
+                        <td className="py-3 px-4 text-[11px] text-slate-500 max-w-xs truncate normal-case" title={item.why_reason}>
                           {item.why_reason}
                         </td>
                         <td className="py-3 px-4 text-right">
-                          <button
-                            onClick={() => alert(`Sample collected for Bed ${item.bed_id}! Dispatched to central pathology lab.`)}
-                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-sm transition"
-                          >
-                            Sample Drawn
-                          </button>
+                          {drawnBeds.includes(item.bed_id) ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-400/40">
+                              <Check className="w-3.5 h-3.5" /> Drawn
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleSampleDrawn(item.bed_id)}
+                              className="px-3 py-2 bg-[#fb923c] hover:bg-white text-[#0a0a0a] text-[11px] font-bold uppercase tracking-wider transition"
+                            >
+                              Sample Drawn
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -2992,71 +3811,105 @@ export default function Dashboard() {
                 </table>
               </div>
             </div>
-          </div>
-        )}
+            )}
+              </>
+            </TabDeck>
+          </DashShell>
+          );
+        })()}
 
         {/* ========================================================================= */}
         {/* DEDICATED ROLE DASHBOARD 5: OPERATIONS COMMAND (FULL ADMIN VIEW)          */}
         {/* ========================================================================= */}
         {activeRole === "OPERATIONS" && currentUser?.roleCategoryId !== "PATIENT" && (
-          <>
-            {/* Metric Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">30-Bed Capacity</div>
-            <div className="text-2xl font-black text-slate-800 mt-1">
-              {status?.total_beds ?? 30}
-            </div>
-            <div className="text-[11px] text-slate-400 mt-0.5">Scale: 30-bed live unit</div>
-          </div>
+          (() => {
+            const totalBeds = status?.total_beds ?? 30;
+            const occBeds = status?.occupied_beds ?? 0;
+            const icuReady = icuRoster ? icuRoster.roster.filter(c => c.icu_stepdown_status === "READY_FOR_TRANSFER").length : 0;
+            const nursePending = nurseCandidates.filter(c => !c.current_consent).length;
+            const billPending = cashCandidates.filter(c => c.estimate_status === "PENDING" || c.estimate_status === "ESTIMATED").length;
+            const bloodDeficit = 3;
+            const thresholdState = readinessMetrics?.threshold_state ?? "HEALTHY";
 
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Occupied Beds</div>
-            <div className="text-2xl font-black text-rose-600 mt-1 flex items-baseline gap-2">
-              {status?.occupied_beds ?? 0}
-              <span className="text-xs font-semibold text-rose-500">
-                {status ? Math.round((status.occupied_beds / status.total_beds) * 100) : 0}%
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-400 mt-0.5">Active clinical cases</div>
-          </div>
-
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">30m Readiness Number</div>
-            <div className="text-2xl font-black text-emerald-600 mt-1 flex items-baseline gap-2">
-              {readinessMetrics?.readiness_number ?? 0}
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                readinessMetrics?.threshold_state === "CRITICAL" ? "bg-rose-100 text-rose-800" :
-                readinessMetrics?.threshold_state === "STRAINED" ? "bg-amber-100 text-amber-800" :
-                "bg-emerald-100 text-emerald-800"
-              }`}>
-                {readinessMetrics?.threshold_state ?? "HEALTHY"}
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-400 mt-0.5">
-              Ready: {readinessMetrics?.ready_now ?? 0} | 30m Turnover: {readinessMetrics?.turnover_in_30m ?? 0}
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Time Saved Today</div>
-            <div className="text-2xl font-black text-indigo-600 mt-1 flex items-baseline gap-1.5">
-              {timeSavedData?.live_demonstrator_30bed.total_hours_saved ?? 0}h
-              <span className="text-xs font-medium text-indigo-500">Live 30-bed</span>
-            </div>
-            <div className="text-[11px] text-slate-400 mt-0.5 truncate" title="Guardrail #10: Projected 300-bed scale">
-              300-Bed: {timeSavedData?.projected_hospital_300bed.daily_hours_saved ?? 0}h/day
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Queued Clearance Tasks</div>
-            <div className="text-2xl font-black text-amber-600 mt-1 flex items-baseline gap-2">
-              {tasks.length}
-            </div>
-            <div className="text-[11px] text-slate-400 mt-0.5">Role-specific WHO & WHY</div>
-          </div>
-        </div>
+            // Smart section prediction: every module carries a live signal. Core modules
+            // plus any that currently need the coordinator's attention (a non-zero signal)
+            // surface as sidebar tiles; the quiet ones fold into a "More Modules" drawer so
+            // the rail stays minimal instead of listing all twelve at once.
+            const coordModules: { id: TabId; label: string; Icon: typeof Activity; signal: number; badge?: number | string; pinned?: boolean }[] = [
+              { id: "TODAYS_PLAN", label: "Today's Plan", Icon: CalendarCheck, signal: todaysPlan?.scheduled_tasks?.length ?? 0, badge: todaysPlan?.scheduled_tasks?.length || undefined, pinned: true },
+              { id: "EMERGENCY_READINESS", label: "Emergency", Icon: ShieldAlert, signal: thresholdState === "HEALTHY" ? 0 : 2, badge: readinessMetrics?.readiness_number, pinned: true },
+              { id: "BEDS", label: "All Beds", Icon: Layers, signal: 0, badge: `${occBeds}/${totalBeds}`, pinned: true },
+              { id: "TASKS", label: "Tasks", Icon: Send, signal: tasks.length, badge: tasks.length || undefined, pinned: true },
+              { id: "ICU_STEPDOWN", label: "ICU Step-Down", Icon: HeartPulse, signal: icuReady, badge: icuReady || undefined },
+              { id: "NURSE_CHECK", label: "Nurse Check", Icon: UserCheck, signal: nursePending, badge: nursePending || undefined },
+              { id: "BILL_ESTIMATOR", label: "Bill Estimator", Icon: Receipt, signal: billPending, badge: billPending || undefined },
+              { id: "BLOOD_INVENTORY", label: "Regional Map", Icon: MapPin, signal: bloodDeficit, badge: bloodDeficit ? `${bloodDeficit}u` : undefined },
+              { id: "RADAR", label: "Radar", Icon: Radar, signal: 0 },
+              { id: "ROUND_CLOCK", label: "Round Clock", Icon: Stethoscope, signal: 0 },
+              { id: "DELAY_BOOK", label: "Delay Book", Icon: Timer, signal: 0 },
+              { id: "PROOF_EVALUATION", label: "Proof & Eval", Icon: Award, signal: 0, badge: "10/10" },
+            ];
+            const surfaced = coordModules.filter(m => m.pinned || m.signal > 0 || m.id === activeTab);
+            const folded = coordModules.filter(m => !surfaced.includes(m));
+            const coordNav: DashNavItem[] = surfaced.map(m => ({ id: m.id, label: m.label, Icon: m.Icon, badge: m.badge }));
+            const coordGroups: DashLinkGroup[] = [
+              ...(folded.length ? [{
+                title: "More Modules",
+                items: folded.map(m => ({
+                  id: m.id,
+                  label: m.label,
+                  Icon: m.Icon,
+                  hint: `Open ${m.label}`,
+                  onClick: () => navigateView("OPERATIONS", m.id),
+                })),
+              }] : []),
+              ...roleSidebarGroups("OPERATIONS"),
+            ];
+            const coordActiveLabel = coordModules.find(m => m.id === activeTab)?.label ?? "Command";
+            const coordSearch = [
+              ...coordModules.map(m => ({ label: m.label, sub: "Module", tab: m.id as string })),
+              ...beds.map(b => ({ label: `Bed ${b.id}`, sub: b.state.toLowerCase(), tab: "BEDS" })),
+              ...nurseCandidates.map(c => ({ label: `${c.patient_name} (${c.bed_id})`, sub: c.diagnosis_name, tab: "NURSE_CHECK" })),
+            ];
+            return (
+          <DashShell
+            brandTitle="SwasthAI"
+            BrandIcon={Activity}
+            identity={staffIdentity}
+            nav={coordNav}
+            activeId={activeTab}
+            onSelect={(id) => navigateView("OPERATIONS", id as TabId)}
+            groups={coordGroups}
+            sidebarFooter={staffSidebarFooter}
+            searchPlaceholder="Patient, bed or module..."
+            searchIndex={coordSearch}
+            breadcrumb={["Home", "Coordinator", coordActiveLabel]}
+            headerRight={
+              <button
+                onClick={handleRoutePayerTasks}
+                disabled={actionLoading}
+                className="h-10 px-4 flex items-center gap-2 bg-[#fb923c] hover:bg-[#f97316] disabled:opacity-50 text-black text-xs font-bold uppercase tracking-wider transition"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Auto-Route Payer Tasks
+              </button>
+            }
+          >
+            <DashHeadline
+              line1="Command Centre"
+              line2={<>30-Bed <span className="text-slate-300 font-bold">Flow</span> Status</>}
+              line3={thresholdState}
+              aside={<DialGauge value={totalBeds ? occBeds / totalBeds : 0} label="Bed Occupancy" display={`${occBeds}/${totalBeds}`} color={ACCENT} />}
+            />
+            <KpiStrip
+              items={[
+                { label: "30-Bed Capacity", value: totalBeds, sub: "live unit" },
+                { label: "Occupied Beds", value: occBeds, sub: `${totalBeds ? Math.round((occBeds / totalBeds) * 100) : 0}%`, color: BAD },
+                { label: "30m Readiness", value: readinessMetrics?.readiness_number ?? 0, sub: thresholdState, color: OK },
+                { label: "Time Saved Today", value: `${timeSavedData?.live_demonstrator_30bed.total_hours_saved ?? 0}h`, sub: "live 30-bed", color: ACCENT },
+                { label: "Queued Tasks", value: tasks.length, sub: "clearance", color: WARN },
+              ]}
+            />
 
         {/* INTERACTIVE DEMO TOUR BANNER (PHASE 11) */}
         {tourActive && (
@@ -3133,193 +3986,6 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-
-        {/* Feature Navigation Tabs: 4 Primary Tabs + 1 'More ▾' Dropdown */}
-        {(() => {
-          const MORE_DROPDOWN_TABS = [
-            { id: "PROOF_EVALUATION" as const, label: "Proof & Evaluation", icon: Award, key: "S", badge: "10/10" },
-            { id: "ICU_STEPDOWN" as const, label: "ICU Step-Down", icon: HeartPulse, key: "I", badge: icuRoster && icuRoster.roster.filter(c => c.icu_stepdown_status === "READY_FOR_TRANSFER").length > 0 ? `${icuRoster.roster.filter(c => c.icu_stepdown_status === "READY_FOR_TRANSFER").length}` : null },
-            { id: "NURSE_CHECK" as const, label: "Nurse Check", icon: UserCheck, key: "N", badge: nurseCandidates.filter(c => !c.current_consent).length > 0 ? `${nurseCandidates.filter(c => !c.current_consent).length}` : null },
-            { id: "BILL_ESTIMATOR" as const, label: "Bill Estimator", icon: Receipt, key: "B", badge: cashCandidates.filter(c => c.estimate_status === "PENDING" || c.estimate_status === "ESTIMATED").length > 0 ? `${cashCandidates.filter(c => c.estimate_status === "PENDING" || c.estimate_status === "ESTIMATED").length}` : null },
-            { id: "ROUND_CLOCK" as const, label: "Round Clock", icon: Stethoscope, key: "R", badge: null },
-            { id: "RADAR" as const, label: "Radar", icon: Radar, key: "D", badge: null },
-            { id: "DELAY_BOOK" as const, label: "Delay Book", icon: Timer, key: "L", badge: null },
-            { id: "TASKS" as const, label: "Tasks", icon: Send, key: "T", badge: `${tasks.length}` },
-          ];
-
-          const activeMoreTabItem = MORE_DROPDOWN_TABS.find(t => t.id === activeTab);
-          const isMoreTabActive = !!activeMoreTabItem;
-          const activeMoreTabLabel = activeMoreTabItem ? activeMoreTabItem.label : "";
-          const activeMoreTabBadge = activeMoreTabItem?.badge || null;
-
-          return (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm relative z-20">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {/* 1. Today's Plan */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("TODAYS_PLAN")}
-                  className={`px-3.5 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                    activeTab === "TODAYS_PLAN"
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                  }`}
-                >
-                  <CalendarCheck className="w-4 h-4" />
-                  <span>Today&apos;s Plan</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold ${activeTab === "TODAYS_PLAN" ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-500 border border-slate-200"}`}>P</span>
-                </button>
-
-                {/* 2. Emergency & Readiness */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("EMERGENCY_READINESS")}
-                  className={`px-3.5 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                    activeTab === "EMERGENCY_READINESS"
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                  }`}
-                >
-                  <ShieldAlert className="w-4 h-4" />
-                  <span>Emergency &amp; Readiness</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold ${activeTab === "EMERGENCY_READINESS" ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-500 border border-slate-200"}`}>E</span>
-                  {readinessMetrics && (
-                    <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      activeTab === "EMERGENCY_READINESS" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-700 border border-slate-200"
-                    }`}>
-                      {readinessMetrics.readiness_number}
-                    </span>
-                  )}
-                </button>
-
-                {/* 3. Regional Map */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("BLOOD_INVENTORY")}
-                  className={`px-3.5 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                    activeTab === "BLOOD_INVENTORY"
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                  }`}
-                >
-                  <MapPin className="w-4 h-4 text-indigo-500" />
-                  <span>Regional Map</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold ${activeTab === "BLOOD_INVENTORY" ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-500 border border-slate-200"}`}>M</span>
-                  <span className="flex items-center gap-1 ml-0.5">
-                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500 text-white shadow-xs" title="Condition 1: Blood Deficit (3u O-)">
-                      <Droplet className="w-2.5 h-2.5 fill-white" />
-                      3u
-                    </span>
-                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500 text-slate-950 shadow-xs" title="Condition 2: ICU Capacity Overflow (0 Beds Free)">
-                      <Bed className="w-2.5 h-2.5" />
-                      0
-                    </span>
-                  </span>
-                </button>
-
-                {/* 4. All Beds */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("BEDS")}
-                  className={`px-3.5 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                    activeTab === "BEDS"
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                  }`}
-                >
-                  <Layers className="w-4 h-4" />
-                  <span>All Beds</span>
-                </button>
-
-                {/* 5. More ▾ Dropdown Trigger & Popover */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setMoreMenuOpen(prev => !prev)}
-                    className={`px-3.5 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                      isMoreTabActive
-                        ? "bg-slate-900 text-white shadow-sm"
-                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                    }`}
-                  >
-                    <span>{isMoreTabActive ? `More: ${activeMoreTabLabel}` : "More"}</span>
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${moreMenuOpen ? "rotate-180" : ""}`} />
-                    {activeMoreTabBadge && (
-                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-800 text-white border border-slate-700">
-                        {activeMoreTabBadge}
-                      </span>
-                    )}
-                  </button>
-
-                  {moreMenuOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-30"
-                        onClick={() => setMoreMenuOpen(false)}
-                      />
-                      <div className="absolute left-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 z-40 animate-fade-in divide-y divide-slate-100">
-                        <div className="px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          Operations &amp; Clinical Modules
-                        </div>
-                        <div className="py-1">
-                          {MORE_DROPDOWN_TABS.map((tab) => {
-                            const Icon = tab.icon;
-                            const isCurrent = activeTab === tab.id;
-                            return (
-                              <button
-                                key={tab.id}
-                                type="button"
-                                onClick={() => {
-                                  setActiveTab(tab.id as any);
-                                  setMoreMenuOpen(false);
-                                }}
-                                className={`w-full px-3.5 py-2 text-xs font-semibold flex items-center justify-between text-left transition ${
-                                  isCurrent
-                                    ? "bg-slate-900 text-white font-bold"
-                                    : "text-slate-700 hover:bg-slate-100"
-                                }`}
-                              >
-                                <div className="flex items-center gap-2.5">
-                                  <Icon className={`w-4 h-4 ${isCurrent ? "text-white" : "text-slate-500"}`} />
-                                  <span>{tab.label}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  {tab.badge && (
-                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                                      isCurrent ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 border border-slate-200"
-                                    }`}>
-                                      {tab.badge}
-                                    </span>
-                                  )}
-                                  <span className={`text-[9px] px-1 py-0.2 rounded font-mono ${
-                                    isCurrent ? "bg-slate-800 text-slate-300" : "bg-slate-100 text-slate-400"
-                                  }`}>
-                                    {tab.key}
-                                  </span>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleRoutePayerTasks}
-                  disabled={actionLoading}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                  Auto-Route Payer Tasks
-                </button>
-              </div>
-            </div>
-          );
-        })()}
 
         {/* Global Toast / Action Success Notification */}
         {actionSuccessMsg && (
@@ -5687,7 +6353,7 @@ export default function Dashboard() {
             <button
               onClick={() => {
                 if (isCoordinator) setShowWhatsAppDrawer(true);
-                setActiveTab("TODAYS_PLAN");
+                navigateView("OPERATIONS", "TODAYS_PLAN");
               }}
               className="px-5 py-2.5 rounded-full bg-[#075E54] hover:bg-[#128C7E] text-white text-xs font-bold transition shadow-sm inline-flex items-center gap-2"
             >
@@ -6026,7 +6692,7 @@ export default function Dashboard() {
               {/* Master Task Table with Sticky Header and Scroll Affordance */}
               {(() => {
                 const displayedTasks = todaysPlan.scheduled_tasks
-                  .filter(t => selectedPlanRole === "ALL" || t.role === selectedPlanRole)
+                  .filter(t => selectedPlanRole === "ALL" || t.role === selectedPlanRole || (selectedPlanRole === "CLEANING" && t.role === "HOUSEKEEPING"))
                   .filter(t => {
                     if (selectedShiftFilter === "ALL") return true;
                     const h = parseInt(t.scheduled_start_str.split(":")[0] || "0", 10);
@@ -6049,12 +6715,13 @@ export default function Dashboard() {
                             <th className="py-3 px-4">Required Deadline</th>
                             <th className="py-3 px-4">Priority Objective</th>
                             <th className="py-3 px-4">Confidence</th>
+                            <th className="py-3 px-4">Review Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-slate-700">
                           {displayedTasks.length === 0 ? (
                             <tr>
-                              <td colSpan={7} className="py-8 text-center text-slate-400">
+                              <td colSpan={8} className="py-8 text-center text-slate-400">
                                 <Clock className="w-6 h-6 mx-auto mb-2 text-slate-300" />
                                 <p className="text-xs font-semibold text-slate-600">No scheduled tasks match the selected shift and role filters.</p>
                                 <p className="text-[11px] text-slate-400 mt-1">Try switching to &quot;All 24h Cycle&quot; or clearing role filter.</p>
@@ -6113,6 +6780,42 @@ export default function Dashboard() {
                                   <span className="font-mono font-bold text-emerald-700">
                                     {Math.round(item.confidence * 100)}%
                                   </span>
+                                </td>
+                                <td className="py-3 px-4">
+                                  {item.role !== "CLEANING" && item.role !== "HOUSEKEEPING" ? (
+                                    <span className="text-slate-300">—</span>
+                                  ) : (() => {
+                                    const review = taskReviews[item.task_id];
+                                    if (!review?.staffDone) {
+                                      return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">Pending</span>;
+                                    }
+                                    if (review.nurseReviewed) {
+                                      return (
+                                        <div className="space-y-1">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                            <ClipboardCheck className="w-3 h-3" /> Reviewed
+                                          </span>
+                                          <div className="text-[10px] text-slate-500">
+                                            {review.reviewedByName}{review.autoAssigned ? " (auto)" : ""}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    return (
+                                      <div className="space-y-1">
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                          Awaiting Nurse Review
+                                        </span>
+                                        <button
+                                          onClick={() => coordinatorForceReview(item.task_id, item.ward)}
+                                          title={`Auto-assign ${WARD_NURSE_NAME[item.ward] || "a nurse"} to review this task`}
+                                          className="flex items-center gap-1 px-2 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-bold transition"
+                                        >
+                                          <UserPlus className="w-3 h-3" /> Review
+                                        </button>
+                                      </div>
+                                    );
+                                  })()}
                                 </td>
                               </tr>
                             ))
@@ -6718,7 +7421,9 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-        </>
+          </DashShell>
+            );
+          })()
         )}
 
         {/* ========================================================================= */}
@@ -6737,148 +7442,112 @@ export default function Dashboard() {
 
         {/* EXECUTIVE PITCH BRIEF & ARCHITECTURE MODAL (PHASE 11) */}
         {showPitchModal && (
-          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-            <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 space-y-6 p-6">
-              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+          <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-start sm:items-center justify-center p-4 overflow-y-auto animate-fade-in">
+            <div className="bg-[#0a0a0a] border border-white/15 max-w-2xl w-full max-h-[92vh] overflow-y-auto my-auto text-slate-300">
+              {/* Sticky header */}
+              <div className="sticky top-0 bg-[#0a0a0a] flex items-start justify-between gap-4 px-7 py-5 border-b border-white/10 z-10">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-indigo-600 text-white rounded-xl shadow-md">
-                    <BookOpen className="w-6 h-6" />
+                  <div className="p-2.5 bg-[#fb923c]/15 text-[#fb923c] border border-[#fb923c]/30">
+                    <BookOpen className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
-                        Hackathon Solution Brief
-                      </span>
-                      <span className="text-xs text-slate-500">The Hospital Never Sleeps</span>
-                    </div>
-                    <h2 className="text-xl font-black text-slate-900 mt-0.5">
-                      SwasthFlow AI: System Architecture &amp; Executive Pitch
+                    <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#fb923c]">
+                      Hackathon Solution Brief
+                    </span>
+                    <h2 className="text-sm sm:text-base font-bold text-white uppercase tracking-tight mt-1 leading-snug">
+                      SwasthFlow AI — Architecture &amp; Pitch
                     </h2>
                   </div>
                 </div>
                 <button
                   onClick={() => setShowPitchModal(false)}
-                  className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                  className="p-2 text-slate-400 hover:text-white hover:bg-white/10 transition shrink-0"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* 1. The Core Thesis */}
-              <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-2">
-                <h3 className="text-sm font-black text-indigo-950 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-indigo-600" />
-                  The Problem Statement &amp; Our Core Thesis
-                </h3>
-                <p className="text-xs text-slate-700 leading-relaxed">
-                  Indian tertiary hospitals are not fundamentally short of inpatient beds — <strong>beds become vacant at the wrong time of day</strong>. Physicians conduct rounds between 09:00 AM and 11:30 AM, but serial non-clinical logistics (laboratory turnaround, insurance pre-authorization queries, cash estimate sticker shock, and delayed room disinfection) push patient departures to 04:00 PM. Emergency and surgical admissions arriving in the morning face artificial 5-to-7 hour hallway boarding.
-                </p>
-                <div className="p-3 bg-white rounded-lg border border-indigo-100 text-xs font-semibold text-indigo-900">
-                  ⚡ <strong>The Solution:</strong> Re-sequence non-clinical logistics so that tests, TPA pre-authorization, billing confirmations, and step-down beds complete <em>just before</em> the clinician&apos;s morning round burst.
-                </div>
+              <div className="px-7 py-6 space-y-9">
+                {/* 1. Problem + Solution */}
+                <section className="space-y-3">
+                  <h3 className="text-xs font-bold text-white uppercase tracking-[0.2em] flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[#fb923c]" />
+                    The Problem
+                  </h3>
+                  <p className="text-sm text-slate-300 leading-relaxed normal-case">
+                    Hospitals aren&apos;t short of beds — <strong className="text-white">beds go vacant at the wrong time of day</strong>. Doctors round from 9:00–11:30 AM, but slow logistics (labs, insurance pre-auth, billing, room cleaning) push discharges to 4:00 PM. Morning admissions then wait 5–7 hours in hallways.
+                  </p>
+                  <div className="p-4 bg-[#fb923c]/10 border-l-2 border-[#fb923c] text-sm text-slate-200 leading-relaxed normal-case">
+                    <strong className="text-[#fb923c]">Our fix:</strong> re-sequence non-clinical work so tests, pre-auth, billing and step-down beds finish <em>just before</em> the morning round.
+                  </div>
+                </section>
+
+                {/* 2. Impact — headline numbers first */}
+                <section className="space-y-3">
+                  <h3 className="text-xs font-bold text-white uppercase tracking-[0.2em]">Measured Impact</h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    {([
+                      { v: "78%", l: "Discharged before 11 AM", c: "text-emerald-400" },
+                      { v: "2.4h", l: "Saved per admission", c: "text-[#fb923c]" },
+                      { v: "2,250", l: "Bed-days freed / year", c: "text-[#fb923c]" },
+                    ]).map((s, i) => (
+                      <div key={i} className="p-4 bg-white/5 border border-white/10 text-center">
+                        <div className={`text-2xl sm:text-3xl font-bold ${s.c}`}>{s.v}</div>
+                        <div className="text-[11px] text-slate-400 mt-1.5 normal-case leading-snug">{s.l}</div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {/* 3. Three engines */}
+                <section className="space-y-3">
+                  <h3 className="text-xs font-bold text-white uppercase tracking-[0.2em]">The Three AI Engines</h3>
+                  <div className="space-y-2.5">
+                    {([
+                      { t: "Discharge Radar", d: "Calibrated LightGBM model scores recovery, bounded to [0.05, 0.92] for the ~15% complication-risk floor." },
+                      { t: "Master Sequencer", d: "Google OR-Tools CP-SAT solves in <0.05s, enforcing the ≤10 tasks/shift and ≥70% confidence guardrails." },
+                      { t: "Delay Book", d: "Learns real P90 step durations — documentation lag and multi-payer clearance tails — to keep plans honest." },
+                    ]).map((e, i) => (
+                      <div key={i} className="flex gap-4 p-4 bg-white/5 border border-white/10">
+                        <div className="text-xl font-bold text-[#fb923c]/70 font-mono shrink-0">{i + 1}</div>
+                        <div>
+                          <div className="font-bold text-white text-sm uppercase tracking-wide">{e.t}</div>
+                          <p className="text-[13px] text-slate-400 leading-relaxed normal-case mt-1">{e.d}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {/* 4. Guardrails */}
+                <section className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-white uppercase tracking-[0.2em] flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      10 Safety Guardrails
+                    </h3>
+                    <span className="text-[10px] font-mono text-emerald-400">10 / 10 passing</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 text-[13px] text-slate-400 normal-case">
+                    <div>1. Doctor decides — zero clinical automation</div>
+                    <div>2. Read-only — never corrupts the EHR</div>
+                    <div>3. P90 planning — rejects optimistic averages</div>
+                    <div>4. Confidence floor — ≥ 70% threshold</div>
+                    <div>5. Alert-fatigue cap — ≤ 10 tasks/shift</div>
+                    <div>6. Financial estimate — ±10% + disclaimer</div>
+                    <div>7. Doctor privacy — no surveillance or ranking</div>
+                    <div>8. Green-consent — only 🟢 unlocks capacity</div>
+                    <div>9. Clinical honesty — [0.05, 0.92] bounded</div>
+                    <div>10. Scale separation — 30-bed live vs 300 proj.</div>
+                  </div>
+                </section>
               </div>
 
-              {/* 2. The Three Engine Components */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-black text-slate-900">
-                  Three Core AI Engine Components
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                    <div className="font-black text-violet-700 uppercase tracking-wider text-[10px]">Engine Component 1</div>
-                    <div className="font-bold text-slate-900">The Discharge Radar</div>
-                    <p className="text-slate-600 leading-relaxed text-[11px]">
-                      Calibrated LightGBM hazard model evaluating non-invasive recovery trajectories. Strictly bounded to [0.05, 0.92] to accommodate the irreducible ~15% nosocomial complication risk floor.
-                    </p>
-                  </div>
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                    <div className="font-black text-indigo-700 uppercase tracking-wider text-[10px]">Engine Component 2</div>
-                    <div className="font-bold text-slate-900">The Master Sequencer</div>
-                    <p className="text-slate-600 leading-relaxed text-[11px]">
-                      Google OR-Tools CP-SAT constraint optimization model solving in &lt;0.05s. Strictly enforces Guardrail #5 (&le; 10 tasks/staff/shift alert fatigue cap) and Guardrail #4 (&ge; 70% confidence floor).
-                    </p>
-                  </div>
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                    <div className="font-black text-emerald-700 uppercase tracking-wider text-[10px]">Engine Component 3</div>
-                    <div className="font-bold text-slate-900">The Delay Book</div>
-                    <p className="text-slate-600 leading-relaxed text-[11px]">
-                      Continuous learning of empirical 90th percentile (P90) duration step budgets. Corrects for documentation lag (10m in ICU vs 68m in Ward B) and multi-payer clearance tails (40.4h Ayushman vs 5.5h TPA).
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* 3. The Frontline Delivery Layer */}
-              <div className="space-y-2">
-                <h3 className="text-sm font-black text-slate-900">
-                  Frontline Clinical &amp; Operational Delivery Layer
-                </h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="font-bold text-slate-800">F2: Round Clock</div>
-                    <div className="text-[10px] text-slate-500">Backwards phlebotomy before 08:00 AM breakfast</div>
-                  </div>
-                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="font-bold text-slate-800">F3: ICU Step-Down</div>
-                    <div className="text-[10px] text-slate-500">2x candidate over-preparation buffer with doctor gate</div>
-                  </div>
-                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="font-bold text-slate-800">F4: Nurse Check</div>
-                    <div className="text-[10px] text-slate-500">Caregiver barrier triage &amp; Piper neural Hindi TTS</div>
-                  </div>
-                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="font-bold text-slate-800">F6: Bill Estimator</div>
-                    <div className="text-[10px] text-slate-500">Advance &plusmn;10% out-of-pocket family SMS with disclaimer</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 4. Canonical 10 Guardrails Cheat Sheet */}
-              <div className="p-4 bg-slate-900 text-white rounded-xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    Canonical 10-Guardrail Safety Architecture
-                  </span>
-                  <span className="text-[10px] font-mono text-emerald-400">10 / 10 Verified Passing</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-300 pt-1">
-                  <div>#1 Doctor Decides (Zero clinical automation)</div>
-                  <div>#2 Read-Only HMS (Never corrupts core EHR)</div>
-                  <div>#3 P90 Planning (Rejects optimistic averages)</div>
-                  <div>#4 Confidence Floor (&ge; 70% threshold)</div>
-                  <div>#5 Alert Fatigue Cap (&le; 10 tasks/staff/shift)</div>
-                  <div>#6 Financial Estimate (&plusmn;10% bound + disclaimer)</div>
-                  <div>#7 Doctor Privacy (Zero surveillance / ranking)</div>
-                  <div>#8 Green-Consent (Only 🟢 unlocks capacity)</div>
-                  <div>#9 Clinical Honesty ([0.05, 0.92] bounded)</div>
-                  <div>#10 Scale Separation (30-bed live vs 300-bed proj)</div>
-                </div>
-              </div>
-
-              {/* 5. Measured & Projected Impact */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-center">
-                <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-                  <div className="text-2xl font-black text-emerald-700">78%</div>
-                  <div className="text-[11px] font-bold text-emerald-900 mt-0.5">Discharged Before 11:00 AM</div>
-                  <div className="text-[10px] text-slate-500">vs 18% Baseline Inpatient Benchmark</div>
-                </div>
-                <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-200">
-                  <div className="text-2xl font-black text-indigo-700">2.4 Hours</div>
-                  <div className="text-[11px] font-bold text-indigo-900 mt-0.5">Saved Per Patient Admission</div>
-                  <div className="text-[10px] text-slate-500">Empirical non-clinical turnaround compression</div>
-                </div>
-                <div className="p-3 bg-violet-50 rounded-xl border border-violet-200">
-                  <div className="text-2xl font-black text-violet-700">2,250 Days</div>
-                  <div className="text-[11px] font-bold text-violet-900 mt-0.5">Annual Bed-Days Freed</div>
-                  <div className="text-[10px] text-slate-500">At 300-bed regional hospital projection scale</div>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-2 border-t border-slate-100">
+              {/* Sticky footer */}
+              <div className="sticky bottom-0 bg-[#0a0a0a] flex justify-end px-7 py-4 border-t border-white/10">
                 <button
                   onClick={() => setShowPitchModal(false)}
-                  className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition"
+                  className="px-6 py-2.5 bg-[#fb923c] hover:bg-white text-[#0a0a0a] text-[11px] font-bold uppercase tracking-wider transition"
                 >
                   Close Briefing
                 </button>

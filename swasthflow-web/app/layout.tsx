@@ -13,6 +13,19 @@ const geistMono = localFont({
   variable: "--font-geist-mono",
   weight: "100 900",
 });
+const silkscreen = localFont({
+  src: [
+    { path: "../fonts/Silkscreen/Silkscreen-Regular.ttf", weight: "400", style: "normal" },
+    { path: "../fonts/Silkscreen/Silkscreen-Bold.ttf", weight: "700", style: "normal" },
+  ],
+  variable: "--font-silkscreen",
+});
+const dotGothic = localFont({
+  src: "../fonts/DotGothic16/DotGothic16-Regular.ttf",
+  variable: "--font-dotgothic",
+  weight: "400",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "SwasthAI — Predictive Hospital Operations & Capacity Platform",
@@ -45,7 +58,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${silkscreen.variable} ${dotGothic.variable} antialiased`}
       >
         {children}
       </body>

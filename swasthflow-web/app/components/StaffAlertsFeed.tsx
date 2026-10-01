@@ -142,9 +142,11 @@ interface StaffAlertsProps {
   currentStaffName: string;
   onNavigateTab?: (tab: string, section?: "blood" | "beds") => void;
   icuAtCapacity?: boolean;
+  /** Icon-only dark trigger for the compact role-workspace navbar */
+  compact?: boolean;
 }
 
-export function StaffAlertsDrawer({ currentRole, currentStaffName, onNavigateTab, icuAtCapacity }: StaffAlertsProps) {
+export function StaffAlertsDrawer({ currentRole, currentStaffName, onNavigateTab, icuAtCapacity, compact }: StaffAlertsProps) {
   const [alerts, setAlerts] = useState<StaffAlertNotification[]>(INITIAL_ALERTS);
   const [isOpen, setIsOpen] = useState(false);
   const [showFullLog, setShowFullLog] = useState(false);
@@ -236,11 +238,14 @@ export function StaffAlertsDrawer({ currentRole, currentStaffName, onNavigateTab
       <div className="relative">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="relative px-3 py-1.5 rounded-full bg-white/90 hover:bg-white border border-slate-200 text-slate-700 shadow-sm transition flex items-center gap-1.5"
+          className={compact
+            ? "relative h-10 min-w-10 px-2.5 border border-white/15 text-slate-300 hover:text-[#fb923c] hover:border-[#fb923c] transition flex items-center justify-center gap-1.5"
+            : "relative px-3 py-1.5 rounded-full bg-white/90 hover:bg-white border border-slate-200 text-slate-700 shadow-sm transition flex items-center gap-1.5"}
           title="Staff Alerts & Message Feed (WhatsApp & SMS)"
+          aria-label="Staff alerts and message feed"
         >
-          <Bell className="w-4 h-4 text-slate-600" />
-          <span className="text-xs font-bold hidden sm:inline text-slate-700">Alerts</span>
+          <Bell className={compact ? "w-4 h-4" : "w-4 h-4 text-slate-600"} />
+          {!compact && <span className="text-xs font-bold hidden sm:inline text-slate-700">Alerts</span>}
 
           {/* Distinct Visual Indicator 1: Blood Shortage (Red Droplet) */}
           {hasBloodAlert && (

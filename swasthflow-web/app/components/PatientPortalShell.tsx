@@ -4,24 +4,40 @@ import React, { useState } from "react";
 import {
   HeartPulse,
   Activity,
-  Calendar,
   Clock,
   User,
-  FileText,
   CheckCircle2,
-  AlertTriangle,
   Receipt,
   ShieldCheck,
   Ambulance,
   Bed,
   Download,
-  Phone,
   Stethoscope,
-  Sparkles,
-  ChevronRight,
   Info,
-  ArrowRight
+  Phone,
+  ArrowRight,
 } from "lucide-react";
+import {
+  DashShell,
+  DashHeadline,
+  DialGauge,
+  DashSectionTitle,
+  SquareIconButton,
+  TodayRow,
+  DateTile,
+  TaskList,
+  StatWidget,
+  Badge,
+  KpiStrip,
+  TabDeck,
+  BarChart,
+  OK,
+  MUTED,
+  ACCENT,
+  type DashNavItem,
+} from "./RoleDashboardShell";
+
+type PatientTab = "JOURNEY" | "CARE" | "INTAKE" | "BILL";
 
 interface PatientPortalShellProps {
   currentUserName: string;
@@ -52,7 +68,7 @@ export function PatientPortalShell({
   onPreAdmissionSubmit,
   onLogout
 }: PatientPortalShellProps) {
-  const [activeTab, setActiveTab] = useState<"JOURNEY" | "INTAKE" | "BILL">("JOURNEY");
+  const [activeTab, setActiveTab] = useState<PatientTab>("JOURNEY");
 
   // Emergency Intake Form State
   const [erName, setErName] = useState("Kavita Rao");
@@ -108,143 +124,158 @@ export function PatientPortalShell({
     setToastMsg(`Pre-Admission ticket ${ticketId} registered. Bed staging reserved.`);
   };
 
+  // Shared input styling for the dark terminal theme
+  const inputCls =
+    "w-full px-3 py-2 bg-white/5 border border-white/15 text-white text-xs focus:outline-none focus:border-[#fb923c] transition placeholder:text-slate-600 normal-case";
+  const labelCls = "block text-slate-400 font-bold mb-1 uppercase tracking-wider text-[10px]";
+
+  const nav: DashNavItem[] = [
+    { id: "JOURNEY", label: "Recovery Journey", Icon: Activity },
+    { id: "CARE", label: "Care Team & Checklist", Icon: Stethoscope },
+    { id: "INTAKE", label: "Emergency & Admission", Icon: Ambulance, badge: lastErTicket || lastAdmTicket ? "✓" : undefined },
+    { id: "BILL", label: "Bill Estimate", Icon: Receipt, badge: "#6" },
+  ];
+  const goTab = (id: string) => setActiveTab(id as PatientTab);
+
   return (
-    <div className="space-y-6 animate-fade-in pb-12">
+    <DashShell
+      brandTitle="SwasthAI"
+      BrandIcon={HeartPulse}
+      identity={{ name: currentUserName, sub: "Patient & Caregiver", emoji: "🧑‍🤝‍🧑" }}
+      nav={nav}
+      activeId={activeTab}
+      onSelect={goTab}
+      searchPlaceholder="Find a section..."
+      searchIndex={[
+        { label: "Recovery milestones", sub: "Vitals, oral meds, doctor round", tab: "JOURNEY" },
+        { label: "Dr. Anand Sharma", sub: "Attending consultant", tab: "CARE" },
+        { label: "Sister Sunita K.", sub: "Ward sister", tab: "CARE" },
+        { label: "Discharge checklist", sub: "What the family needs to do", tab: "CARE" },
+        { label: "Emergency intake", sub: "Alert the ER before arrival", tab: "INTAKE" },
+        { label: "Pre-admission", sub: "Reserve a bed for a planned stay", tab: "INTAKE" },
+        { label: "Bill estimate", sub: "Itemized costs and insurance", tab: "BILL" },
+        { label: "Download statement", sub: "PDF of the estimate", tab: "BILL" },
+      ]}
+      groups={[
+        {
+          title: "Get Help",
+          items: [
+            { id: "call", label: "Call Hospital", Icon: Phone, hint: "+91 800-SWASTH", onClick: () => { window.location.href = "tel:+91800792784"; } },
+            { id: "er", label: "Emergency Intake", Icon: Ambulance, hint: "Alert the ER team", onClick: () => setActiveTab("INTAKE") },
+            { id: "statement", label: "Get Statement", Icon: Download, hint: "Send the bill estimate to your phone", onClick: () => { setActiveTab("BILL"); setToastMsg("Itemized estimate statement generated and sent to registered mobile."); } },
+          ],
+        },
+      ]}
+      sidebarFooter={
+        <button
+          onClick={onLogout}
+          className="w-full h-11 flex items-center justify-center gap-2 border border-white/15 text-slate-300 hover:text-black hover:bg-rose-500 hover:border-rose-500 text-xs font-bold uppercase tracking-wider transition"
+        >
+          <User className="w-4 h-4" /> Switch Role / Logout
+        </button>
+      }
+      breadcrumb={["Home", "Patient", nav.find(n => n.id === activeTab)?.label ?? ""]}
+      headerRight={
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="px-2.5 h-8 inline-flex items-center text-[10px] font-bold uppercase tracking-wider bg-emerald-400/10 text-emerald-400 border border-emerald-400/30">
+            ● Live Inpatient Episode
+          </span>
+          <span className="px-2.5 h-8 inline-flex items-center text-[11px] font-mono bg-white/5 text-slate-400 border border-white/10 normal-case">
+            Hospital ID: #SRM-PT-2026-904
+          </span>
+        </div>
+      }
+    >
       {/* Toast Notification */}
       {toastMsg && (
-        <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-3 rounded-xl flex items-center justify-between text-sm shadow-sm animate-fade-in">
+        <div className="bg-emerald-400/10 border border-emerald-400/30 text-emerald-300 px-4 py-3 flex items-center justify-between text-sm animate-fade-in normal-case">
           <div className="flex items-center gap-2 font-medium">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
             {toastMsg}
           </div>
           <button
             onClick={() => setToastMsg(null)}
-            className="text-emerald-700 hover:text-emerald-900 text-xs font-bold"
+            className="text-emerald-400 hover:text-white text-[10px] font-bold uppercase tracking-wider"
           >
             Dismiss
           </button>
         </div>
       )}
 
-      {/* Patient Hero Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-indigo-800/40 relative overflow-hidden">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1.5">
-                <HeartPulse className="w-3.5 h-3.5 text-rose-400" />
-                Patient &amp; Caregiver Portal
-              </span>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                ● Live Inpatient Episode
-              </span>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/10 text-slate-300">
-                Hospital ID: #SRM-PT-2026-904
-              </span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-              Welcome, {currentUserName}
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-              Real-time recovery tracking, pre-admission staging, and transparent price estimations eliminating discharge anxiety.
-            </p>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <button
-              onClick={onLogout}
-              className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold transition flex items-center justify-center gap-2"
-            >
-              <User className="w-3.5 h-3.5" />
-              <span>Switch Role / Logout</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Quick Patient Snapshot Cards */}
-        <div className="mt-6 pt-6 border-t border-white/10 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-            <span className="text-slate-400 block text-[11px]">Patient Name</span>
-            <span className="text-white font-bold text-sm">Sunita Devi (52y / F)</span>
-          </div>
-          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-            <span className="text-slate-400 block text-[11px]">Bed &amp; Ward</span>
-            <span className="text-white font-bold text-sm">Bed B-104 &bull; Ward A</span>
-          </div>
-          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-            <span className="text-slate-400 block text-[11px]">Attending Consultant</span>
-            <span className="text-white font-bold text-sm">Dr. Anand Sharma (Med)</span>
-          </div>
-          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-            <span className="text-slate-400 block text-[11px]">Anticipated Discharge</span>
-            <span className="text-emerald-300 font-bold text-sm">Tomorrow &bull; 11:30 AM</span>
-          </div>
-        </div>
+      <div className="space-y-3">
+        <DashHeadline
+          line1="Welcome,"
+          line2={<span className="text-slate-300 font-bold">{currentUserName}</span>}
+          line3="Home Tomorrow 11:30"
+          aside={<DialGauge value={0.92} label="Discharge Readiness" color={OK} />}
+        />
+        <p className="text-sm text-slate-400 max-w-2xl leading-relaxed normal-case">
+          Real-time recovery tracking, pre-admission staging, and transparent price estimations eliminating discharge anxiety.
+        </p>
       </div>
 
-      {/* Internal Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
-        <button
-          onClick={() => setActiveTab("JOURNEY")}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === "JOURNEY"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
-          }`}
-        >
-          <Activity className="w-4 h-4 text-emerald-500" />
-          <span>Recovery Journey &amp; Milestones</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("INTAKE")}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === "INTAKE"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
-          }`}
-        >
-          <Ambulance className="w-4 h-4 text-rose-500" />
-          <span>Emergency Intake &amp; Pre-Admission</span>
-          {(lastErTicket || lastAdmTicket) && (
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab("BILL")}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === "BILL"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
-          }`}
-        >
-          <Receipt className="w-4 h-4 text-indigo-500" />
-          <span>Financial Transparency &amp; Bill Estimate</span>
-          <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-            Guardrail #6
-          </span>
-        </button>
+      <div>
+        <DashSectionTitle title="Before Going Home" count={3} total={4}>
+          <SquareIconButton Icon={Receipt} label="Open bill estimate" onClick={() => setActiveTab("BILL")} />
+          <SquareIconButton Icon={ArrowRight} label="Open care team and checklist" onClick={() => setActiveTab("CARE")} />
+        </DashSectionTitle>
+        <TodayRow>
+          <DateTile />
+          <TaskList
+            tasks={[
+              { id: "vehicle", label: "Arrange transport", meta: "Family car or transit vehicle for 11:45 AM", onOpen: () => setActiveTab("CARE") },
+              { id: "id", label: "ID proof verified", meta: "Original government ID at reception", done: true, onOpen: () => setActiveTab("CARE") },
+              { id: "tpa", label: "Insurance approved", meta: "Star Health pre-auth ₹35,000", done: true, onOpen: () => setActiveTab("BILL") },
+            ]}
+          />
+          <StatWidget
+            title="Estimated Bill"
+            onOpen={() => setActiveTab("BILL")}
+            chart={
+              <BarChart
+                height={90}
+                data={[
+                  { label: "Low", value: 38.5, color: MUTED, hint: "Lower bound (P10): ₹38,500" },
+                  { label: "Likely", value: 42.2, color: ACCENT, hint: "Projected estimate: ₹42,200" },
+                  { label: "High", value: 46.8, color: MUTED, hint: "Upper bound (P90): ₹46,800" },
+                ]}
+                unit="k"
+              />
+            }
+            badge={<Badge tone="ok">₹7,200 to pay at discharge</Badge>}
+          />
+        </TodayRow>
       </div>
 
+      {/* Quick Patient Snapshot */}
+      <KpiStrip
+        items={[
+          { label: "Patient", value: <span className="text-lg normal-case">Sunita Devi</span>, sub: "52y / F" },
+          { label: "Bed & Ward", value: <span className="text-lg normal-case">B-104</span>, sub: "Ward A" },
+          { label: "Consultant", value: <span className="text-lg normal-case">Dr. Sharma</span>, sub: "Medicine" },
+          { label: "Discharge", value: <span className="text-lg normal-case">Tomorrow</span>, sub: "11:30 AM", color: OK },
+        ]}
+      />
+
+      <TabDeck tabs={nav} active={activeTab} onChange={goTab}>
       {/* TAB 1: RECOVERY JOURNEY & MILESTONES */}
       {activeTab === "JOURNEY" && (
-        <div className="space-y-6">
+        <div className="p-5 sm:p-6 space-y-6">
           {/* Recovery Progress Bar */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div className="bg-[#0a0a0a] p-6 border border-white/10 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <Activity className="w-5 h-5 text-indigo-600" />
+                <h2 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-tight">
+                  <Activity className="w-5 h-5 text-[#fb923c]" />
                   Clinical Recovery Trajectory (Day 3 of Inpatient Stay)
                 </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5 normal-case">
                   Diagnosis: Acute Exacerbation of Bronchial Asthma &bull; Continuous multiparameter telemetry monitoring
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-700">Discharge Readiness:</span>
-                <span className="px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Discharge Readiness:</span>
+                <span className="px-2.5 py-1 text-xs font-bold bg-emerald-400/10 text-emerald-400 border border-emerald-400/30">
                   92% Ready
                 </span>
               </div>
@@ -252,97 +283,103 @@ export function PatientPortalShell({
 
             {/* Stepper Timeline */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
-              <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/50 space-y-1.5">
+              <div className="p-4 border border-emerald-400/30 bg-emerald-400/5 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Step 1 &bull; Complete</span>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Step 1 &bull; Complete</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 </div>
-                <h3 className="font-bold text-slate-900 text-sm">Vitals Normalization</h3>
-                <p className="text-xs text-slate-600">
+                <h3 className="font-bold text-white text-sm uppercase tracking-tight">Vitals Normalization</h3>
+                <p className="text-xs text-slate-400 normal-case">
                   BP: 120/80 mmHg &bull; SpO2: 98% room air &bull; Pulse: 72 bpm steady.
                 </p>
               </div>
 
-              <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/50 space-y-1.5">
+              <div className="p-4 border border-emerald-400/30 bg-emerald-400/5 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Step 2 &bull; Complete</span>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Step 2 &bull; Complete</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 </div>
-                <h3 className="font-bold text-slate-900 text-sm">Oral Step-Down</h3>
-                <p className="text-xs text-slate-600">
+                <h3 className="font-bold text-white text-sm uppercase tracking-tight">Oral Step-Down</h3>
+                <p className="text-xs text-slate-400 normal-case">
                   IV bronchodilators stopped. Oral maintenance medication tolerated well.
                 </p>
               </div>
 
-              <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/50 space-y-1.5">
+              <div className="p-4 border border-[#fb923c]/40 bg-[#fb923c]/5 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Step 3 &bull; In Progress</span>
-                  <Activity className="w-4 h-4 text-indigo-600 animate-pulse" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#fb923c]">Step 3 &bull; In Progress</span>
+                  <Activity className="w-4 h-4 text-[#fb923c] animate-pulse" />
                 </div>
-                <h3 className="font-bold text-slate-900 text-sm">Doctor Bedside Round</h3>
-                <p className="text-xs text-slate-600">
+                <h3 className="font-bold text-white text-sm uppercase tracking-tight">Doctor Bedside Round</h3>
+                <p className="text-xs text-slate-400 normal-case">
                   Dr. Anand Sharma bedside round scheduled at 10:30 AM today for clinical review.
                 </p>
               </div>
 
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-1.5">
+              <div className="p-4 border border-white/10 bg-white/5 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Step 4 &bull; Pending</span>
-                  <Clock className="w-4 h-4 text-slate-400" />
+                  <Clock className="w-4 h-4 text-slate-500" />
                 </div>
-                <h3 className="font-bold text-slate-900 text-sm">Discharge Summary &amp; Bill</h3>
-                <p className="text-xs text-slate-600">
+                <h3 className="font-bold text-white text-sm uppercase tracking-tight">Discharge Summary &amp; Bill</h3>
+                <p className="text-xs text-slate-400 normal-case">
                   Cashier billing queue eliminated. TPA approval initiated prior to rounds.
                 </p>
               </div>
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* TAB 2: CARE TEAM & FAMILY DISCHARGE CHECKLIST */}
+      {activeTab === "CARE" && (
+        <div className="p-5 sm:p-6 space-y-6">
           {/* Caregiver Advice & Support Card */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Stethoscope className="w-4 h-4 text-indigo-600" />
+            <div className="bg-[#0a0a0a] p-5 border border-white/10 space-y-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-tight">
+                <Stethoscope className="w-4 h-4 text-[#fb923c]" />
                 Attending Clinical Team
               </h3>
               <div className="space-y-3 text-xs">
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="flex items-center justify-between p-3 bg-white/5 border border-white/10">
                   <div>
-                    <div className="font-bold text-slate-900">Dr. Anand Sharma, MD</div>
-                    <div className="text-slate-500">Chief Consultant Physician &bull; Internal Medicine</div>
+                    <div className="font-bold text-white normal-case">Dr. Anand Sharma, MD</div>
+                    <div className="text-slate-400 normal-case">Chief Consultant Physician &bull; Internal Medicine</div>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[10px] font-bold">On Duty</span>
+                  <span className="px-2 py-0.5 bg-[#fb923c]/10 text-[#fb923c] border border-[#fb923c]/30 text-[10px] font-bold uppercase tracking-wider">On Duty</span>
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="flex items-center justify-between p-3 bg-white/5 border border-white/10">
                   <div>
-                    <div className="font-bold text-slate-900">Sister Sunita K. (RN)</div>
-                    <div className="text-slate-500">Primary Ward Sister &bull; Ward A Station</div>
+                    <div className="font-bold text-white normal-case">Sister Sunita K. (RN)</div>
+                    <div className="text-slate-400 normal-case">Primary Ward Sister &bull; Ward A Station</div>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">Stationed</span>
+                  <span className="px-2 py-0.5 bg-emerald-400/10 text-emerald-400 border border-emerald-400/30 text-[10px] font-bold uppercase tracking-wider">Stationed</span>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Info className="w-4 h-4 text-indigo-600" />
+            <div className="bg-[#0a0a0a] p-5 border border-white/10 space-y-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-tight">
+                <Info className="w-4 h-4 text-[#fb923c]" />
                 Discharge Preparation Checklist for Family
               </h3>
-              <ul className="text-xs text-slate-600 space-y-2">
+              <ul className="text-xs text-slate-400 space-y-2 normal-case">
                 <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
                   <span>Original government ID proof verified at reception.</span>
                 </li>
                 <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
                   <span>Star Health Insurance pre-authorization approved for ₹35,000.</span>
                 </li>
                 <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
                   <span>Take-home inhaler and oral medication instructions demonstrated by nursing.</span>
                 </li>
-                <li className="flex items-center gap-2 text-slate-700 font-semibold">
-                  <Clock className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                <li className="flex items-center gap-2 text-slate-200 font-semibold">
+                  <Clock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
                   <span>Family car or patient transit vehicle scheduled for 11:45 AM.</span>
                 </li>
               </ul>
@@ -353,64 +390,64 @@ export function PatientPortalShell({
 
       {/* TAB 2: EMERGENCY INTAKE & SCHEDULED PRE-ADMISSION */}
       {activeTab === "INTAKE" && (
-        <div className="space-y-6">
+        <div className="p-5 sm:p-6 space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* SUBMISSION FORM 1: RAPID EMERGENCY INTAKE */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="bg-[#0a0a0a] p-6 border border-white/10 space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-rose-50 text-rose-600 border border-rose-200">
+                  <div className="p-2 bg-rose-500/10 text-rose-400 border border-rose-500/30">
                     <Ambulance className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-sm font-bold text-slate-900">Rapid Emergency Intake</h2>
-                    <p className="text-[11px] text-slate-500">Alerts ER Triage &amp; Bed Allocator before arrival</p>
+                    <h2 className="text-sm font-bold text-white uppercase tracking-tight">Rapid Emergency Intake</h2>
+                    <p className="text-[11px] text-slate-500 normal-case">Alerts ER Triage &amp; Bed Allocator before arrival</p>
                   </div>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">
+                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/30">
                   Direct to ER
                 </span>
               </div>
 
               {lastErTicket && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center justify-between">
+                <div className="p-3 bg-emerald-400/5 border border-emerald-400/30 text-xs text-emerald-300 flex items-center justify-between normal-case">
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span>Active Ticket: <strong>{lastErTicket}</strong> &bull; Priority ER Team Notified</span>
                   </div>
-                  <span className="text-[10px] font-bold text-emerald-700 uppercase bg-emerald-100 px-2 py-0.5 rounded">Queued</span>
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider bg-emerald-400/10 px-2 py-0.5">Queued</span>
                 </div>
               )}
 
               <form onSubmit={handleERSubmit} className="space-y-3 text-xs">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Patient Name</label>
+                    <label className={labelCls}>Patient Name</label>
                     <input
                       type="text"
                       value={erName}
                       onChange={e => setErName(e.target.value)}
                       required
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/20 text-xs"
+                      className={inputCls}
                       placeholder="e.g. Kavita Rao"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-slate-600 font-semibold mb-1">Age</label>
+                      <label className={labelCls}>Age</label>
                       <input
                         type="number"
                         value={erAge}
                         onChange={e => setErAge(e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/20 text-xs"
+                        className={inputCls}
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-600 font-semibold mb-1">Gender</label>
+                      <label className={labelCls}>Gender</label>
                       <select
                         value={erGender}
                         onChange={e => setErGender(e.target.value)}
-                        className="w-full px-2 py-2 rounded-lg border border-slate-200 text-xs"
+                        className={inputCls}
                       >
                         <option>Female</option>
                         <option>Male</option>
@@ -421,15 +458,15 @@ export function PatientPortalShell({
                 </div>
 
                 <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Triage Severity</label>
+                  <label className={labelCls}>Triage Severity</label>
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={() => setErTriage("RED")}
-                      className={`p-2 rounded-lg border text-center font-bold text-xs transition ${
+                      className={`p-2 border text-center font-bold text-[11px] uppercase tracking-wider transition ${
                         erTriage === "RED"
-                          ? "bg-rose-600 text-white border-rose-700 shadow-xs"
-                          : "bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100"
+                          ? "bg-rose-500 text-[#0a0a0a] border-rose-500"
+                          : "bg-rose-500/5 text-rose-400 border-rose-500/30 hover:bg-rose-500/10"
                       }`}
                     >
                       🔴 Red (Critical)
@@ -437,10 +474,10 @@ export function PatientPortalShell({
                     <button
                       type="button"
                       onClick={() => setErTriage("YELLOW")}
-                      className={`p-2 rounded-lg border text-center font-bold text-xs transition ${
+                      className={`p-2 border text-center font-bold text-[11px] uppercase tracking-wider transition ${
                         erTriage === "YELLOW"
-                          ? "bg-amber-500 text-white border-amber-600 shadow-xs"
-                          : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                          ? "bg-amber-400 text-[#0a0a0a] border-amber-400"
+                          : "bg-amber-400/5 text-amber-400 border-amber-400/30 hover:bg-amber-400/10"
                       }`}
                     >
                       🟡 Yellow (Urgent)
@@ -448,10 +485,10 @@ export function PatientPortalShell({
                     <button
                       type="button"
                       onClick={() => setErTriage("GREEN")}
-                      className={`p-2 rounded-lg border text-center font-bold text-xs transition ${
+                      className={`p-2 border text-center font-bold text-[11px] uppercase tracking-wider transition ${
                         erTriage === "GREEN"
-                          ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
-                          : "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                          ? "bg-emerald-500 text-[#0a0a0a] border-emerald-500"
+                          : "bg-emerald-400/5 text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10"
                       }`}
                     >
                       🟢 Green (Mild)
@@ -460,24 +497,24 @@ export function PatientPortalShell({
                 </div>
 
                 <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Primary Symptoms / Chief Complaint</label>
+                  <label className={labelCls}>Primary Symptoms / Chief Complaint</label>
                   <textarea
                     rows={2}
                     value={erComplaint}
                     onChange={e => setErComplaint(e.target.value)}
                     required
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500/20 text-xs"
+                    className={inputCls}
                     placeholder="Describe main emergency symptoms..."
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Insurance / Payer</label>
+                    <label className={labelCls}>Insurance / Payer</label>
                     <select
                       value={erPayer}
                       onChange={e => setErPayer(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"
+                      className={inputCls}
                     >
                       <option>Star Health TPA</option>
                       <option>Ayushman Bharat (PM-JAY)</option>
@@ -486,11 +523,11 @@ export function PatientPortalShell({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Estimated Arrival</label>
+                    <label className={labelCls}>Estimated Arrival</label>
                     <select
                       value={erEta}
                       onChange={e => setErEta(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"
+                      className={inputCls}
                     >
                       <option>Arrived at Triage Desk</option>
                       <option>10 mins (In Transit)</option>
@@ -502,7 +539,7 @@ export function PatientPortalShell({
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-2 mt-2"
+                  className="w-full py-2.5 px-4 bg-rose-500 hover:bg-white text-[#0a0a0a] font-bold text-[11px] uppercase tracking-wider transition flex items-center justify-center gap-2 mt-2"
                 >
                   <Ambulance className="w-4 h-4" />
                   <span>Submit Emergency Intake to ER Staff Queue</span>
@@ -511,76 +548,76 @@ export function PatientPortalShell({
             </div>
 
             {/* SUBMISSION FORM 2: SCHEDULED PRE-ADMISSION */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="bg-[#0a0a0a] p-6 border border-white/10 space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-200">
+                  <div className="p-2 bg-[#fb923c]/10 text-[#fb923c] border border-[#fb923c]/30">
                     <Bed className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-sm font-bold text-slate-900">Scheduled Admission Pre-Registration</h2>
-                    <p className="text-[11px] text-slate-500">Reserves bed staging &amp; pre-authorizes insurance</p>
+                    <h2 className="text-sm font-bold text-white uppercase tracking-tight">Scheduled Admission Pre-Registration</h2>
+                    <p className="text-[11px] text-slate-500 normal-case">Reserves bed staging &amp; pre-authorizes insurance</p>
                   </div>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800">
+                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#fb923c]/10 text-[#fb923c] border border-[#fb923c]/30">
                   Elective Flow
                 </span>
               </div>
 
               {lastAdmTicket && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center justify-between">
+                <div className="p-3 bg-emerald-400/5 border border-emerald-400/30 text-xs text-emerald-300 flex items-center justify-between normal-case">
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span>Booking: <strong>{lastAdmTicket}</strong> &bull; Bed Reserved in Ward A</span>
                   </div>
-                  <span className="text-[10px] font-bold text-emerald-700 uppercase bg-emerald-100 px-2 py-0.5 rounded">Reserved</span>
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider bg-emerald-400/10 px-2 py-0.5">Reserved</span>
                 </div>
               )}
 
               <form onSubmit={handleAdmSubmit} className="space-y-3 text-xs">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Patient Full Name</label>
+                    <label className={labelCls}>Patient Full Name</label>
                     <input
                       type="text"
                       value={admName}
                       onChange={e => setAdmName(e.target.value)}
                       required
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-xs"
+                      className={inputCls}
                       placeholder="e.g. Rameshwar Verma"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Contact Phone</label>
+                    <label className={labelCls}>Contact Phone</label>
                     <input
                       type="text"
                       value={admPhone}
                       onChange={e => setAdmPhone(e.target.value)}
                       required
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-xs"
+                      className={inputCls}
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Planned Procedure / Specialty</label>
+                  <label className={labelCls}>Planned Procedure / Specialty</label>
                   <input
                     type="text"
                     value={admProcedure}
                     onChange={e => setAdmProcedure(e.target.value)}
                     required
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-xs"
+                    className={inputCls}
                     placeholder="e.g. Laparoscopic Surgery, Angiogram"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Preferred Accommodation</label>
+                    <label className={labelCls}>Preferred Accommodation</label>
                     <select
                       value={admWard}
                       onChange={e => setAdmWard(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"
+                      className={inputCls}
                     >
                       <option>Ward A (Semi-Private)</option>
                       <option>Ward B (General Inpatient)</option>
@@ -589,23 +626,23 @@ export function PatientPortalShell({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Admission Target Time</label>
+                    <label className={labelCls}>Admission Target Time</label>
                     <input
                       type="text"
                       value={admDate}
                       onChange={e => setAdmDate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"
+                      className={inputCls}
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Attending Consultant</label>
+                    <label className={labelCls}>Attending Consultant</label>
                     <select
                       value={admDoctor}
                       onChange={e => setAdmDoctor(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"
+                      className={inputCls}
                     >
                       <option>Dr. Anand Sharma</option>
                       <option>Dr. S. Rao (Cardio)</option>
@@ -613,12 +650,12 @@ export function PatientPortalShell({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Pre-Auth / Policy Number</label>
+                    <label className={labelCls}>Pre-Auth / Policy Number</label>
                     <input
                       type="text"
                       value={admPreauth}
                       onChange={e => setAdmPreauth(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs"
+                      className={inputCls}
                       placeholder="e.g. TPA-PREAUTH-77391"
                     />
                   </div>
@@ -626,9 +663,9 @@ export function PatientPortalShell({
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-2 mt-2"
+                  className="w-full py-2.5 px-4 bg-[#fb923c] hover:bg-white text-[#0a0a0a] font-bold text-[11px] uppercase tracking-wider transition flex items-center justify-center gap-2 mt-2"
                 >
-                  <Bed className="w-4 h-4 text-indigo-400" />
+                  <Bed className="w-4 h-4" />
                   <span>Pre-Register Admission &amp; Reserve Bed Staging</span>
                 </button>
               </form>
@@ -639,20 +676,20 @@ export function PatientPortalShell({
 
       {/* TAB 3: FINANCIAL TRANSPARENCY & GUARDRAIL #6 BILL ESTIMATE */}
       {activeTab === "BILL" && (
-        <div className="space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+        <div className="p-5 sm:p-6 space-y-6">
+          <div className="bg-[#0a0a0a] p-6 border border-white/10 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
               <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Receipt className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-base font-bold text-slate-900">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Receipt className="w-5 h-5 text-[#fb923c]" />
+                  <h2 className="text-sm font-bold text-white uppercase tracking-tight">
                     Transparent Inpatient Price Estimation
                   </h2>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200">
+                  <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[#fb923c]/10 text-[#fb923c] border border-[#fb923c]/30">
                     🛡️ Guardrail #6: &plusmn;10% Empirical Bounded
                   </span>
                 </div>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 normal-case">
                   Eliminating afternoon cashier queues with proactive, itemized price transparency before discharge rounds.
                 </p>
               </div>
@@ -660,87 +697,105 @@ export function PatientPortalShell({
               <button
                 type="button"
                 onClick={() => setToastMsg("Itemized estimate statement generated and sent to registered mobile.")}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 flex-shrink-0"
+                className="px-4 py-2 bg-[#fb923c] hover:bg-white text-[#0a0a0a] text-[11px] font-bold uppercase tracking-wider transition flex items-center gap-2 flex-shrink-0"
               >
-                <Download className="w-4 h-4 text-emerald-400" />
+                <Download className="w-4 h-4" />
                 <span>Download Statement (PDF)</span>
               </button>
             </div>
 
             {/* Bounded Envelope Highlight */}
-            <div className="bg-gradient-to-r from-indigo-50 via-slate-50 to-blue-50 p-5 rounded-2xl border border-indigo-100 grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-                <span className="text-[11px] font-semibold text-slate-500 block uppercase">Lower Bound (P10)</span>
-                <span className="text-xl font-bold text-slate-700">₹38,500</span>
-                <span className="text-[10px] text-slate-400 block mt-0.5">Minimal medication scenario</span>
+            <div className="bg-white/5 p-5 border border-white/10 grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+              <div className="bg-[#111] p-4 border border-white/10">
+                <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider">Lower Bound (P10)</span>
+                <span className="text-xl font-bold text-slate-300">₹38,500</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5 normal-case">Minimal medication scenario</span>
               </div>
-              <div className="bg-white p-4 rounded-xl border border-indigo-300 shadow-sm ring-2 ring-indigo-500/20">
-                <span className="text-[11px] font-bold text-indigo-600 block uppercase">Projected Point Estimate</span>
-                <span className="text-2xl font-black text-slate-900">₹42,200</span>
-                <span className="text-[10px] text-emerald-600 font-bold block mt-0.5">Empirical Median Expected</span>
+              <div className="bg-[#111] p-4 border border-[#fb923c]/40">
+                <span className="text-[10px] font-bold text-[#fb923c] block uppercase tracking-wider">Projected Point Estimate</span>
+                <span className="text-2xl font-bold text-white">₹42,200</span>
+                <span className="text-[10px] text-emerald-400 font-bold block mt-0.5 normal-case">Empirical Median Expected</span>
               </div>
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-                <span className="text-[11px] font-semibold text-slate-500 block uppercase">Upper Bound (P90)</span>
-                <span className="text-xl font-bold text-slate-700">₹46,800</span>
-                <span className="text-[10px] text-slate-400 block mt-0.5">Max expected pharmacy usage</span>
+              <div className="bg-[#111] p-4 border border-white/10">
+                <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider">Upper Bound (P90)</span>
+                <span className="text-xl font-bold text-slate-300">₹46,800</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5 normal-case">Max expected pharmacy usage</span>
               </div>
+            </div>
+
+            {/* Where the money goes — chart of the itemized categories */}
+            <div className="space-y-3">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Where The Money Goes (₹ thousands)
+              </h3>
+              <BarChart
+                height={150}
+                unit="k"
+                data={[
+                  { label: "Room", value: 10.5, hint: "Room & Nursing: ₹10,500" },
+                  { label: "Doctor", value: 4.5, hint: "Consultant rounds: ₹4,500" },
+                  { label: "Lab", value: 6.2, hint: "Laboratory & phlebotomy: ₹6,200" },
+                  { label: "Pharmacy", value: 14.2, hint: "Pharmacy & nebulization: ₹14,200" },
+                  { label: "Sanitation", value: 3.6, hint: "Sanitization & bio-safety: ₹3,600" },
+                ]}
+              />
             </div>
 
             {/* Itemized Table Breakdown */}
             <div className="space-y-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Itemized Cost Breakdown (As of Day 3 of Stay)
               </h3>
-              <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+              <div className="border border-white/10 overflow-hidden text-xs">
                 <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
+                  <thead className="bg-white/5 text-slate-400 border-b border-white/10 font-bold uppercase tracking-wider text-[10px]">
                     <tr>
                       <th className="py-2.5 px-4">Service Category</th>
                       <th className="py-2.5 px-4">Unit / Details</th>
                       <th className="py-2.5 px-4 text-right">Incurred Amount</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                  <tbody className="divide-y divide-white/10 text-slate-300 normal-case">
                     <tr>
-                      <td className="py-2.5 px-4 font-semibold text-slate-900">Room &amp; Nursing Charges</td>
-                      <td className="py-2.5 px-4 text-slate-500">3 Nights &bull; Semi-Private Ward A</td>
+                      <td className="py-2.5 px-4 font-semibold text-white">Room &amp; Nursing Charges</td>
+                      <td className="py-2.5 px-4 text-slate-400">3 Nights &bull; Semi-Private Ward A</td>
                       <td className="py-2.5 px-4 text-right font-mono">₹10,500</td>
                     </tr>
                     <tr>
-                      <td className="py-2.5 px-4 font-semibold text-slate-900">Attending Consultant Bedside Rounds</td>
-                      <td className="py-2.5 px-4 text-slate-500">3 Daily Physician Assessments (Dr. Sharma)</td>
+                      <td className="py-2.5 px-4 font-semibold text-white">Attending Consultant Bedside Rounds</td>
+                      <td className="py-2.5 px-4 text-slate-400">3 Daily Physician Assessments (Dr. Sharma)</td>
                       <td className="py-2.5 px-4 text-right font-mono">₹4,500</td>
                     </tr>
                     <tr>
-                      <td className="py-2.5 px-4 font-semibold text-slate-900">Diagnostic Laboratory &amp; Phlebotomy</td>
-                      <td className="py-2.5 px-4 text-slate-500">CBC, Electrolytes, Arterial Blood Gas, CRP</td>
+                      <td className="py-2.5 px-4 font-semibold text-white">Diagnostic Laboratory &amp; Phlebotomy</td>
+                      <td className="py-2.5 px-4 text-slate-400">CBC, Electrolytes, Arterial Blood Gas, CRP</td>
                       <td className="py-2.5 px-4 text-right font-mono">₹6,200</td>
                     </tr>
                     <tr>
-                      <td className="py-2.5 px-4 font-semibold text-slate-900">Inpatient Pharmacy &amp; Nebulization</td>
-                      <td className="py-2.5 px-4 text-slate-500">IV Corticosteroids, Bronchodilators &amp; Saline</td>
+                      <td className="py-2.5 px-4 font-semibold text-white">Inpatient Pharmacy &amp; Nebulization</td>
+                      <td className="py-2.5 px-4 text-slate-400">IV Corticosteroids, Bronchodilators &amp; Saline</td>
                       <td className="py-2.5 px-4 text-right font-mono">₹14,200</td>
                     </tr>
                     <tr>
-                      <td className="py-2.5 px-4 font-semibold text-slate-900">Facility Sanitization &amp; Bio-Safety</td>
-                      <td className="py-2.5 px-4 text-slate-500">Terminal Disinfection &amp; PPE consumables</td>
+                      <td className="py-2.5 px-4 font-semibold text-white">Facility Sanitization &amp; Bio-Safety</td>
+                      <td className="py-2.5 px-4 text-slate-400">Terminal Disinfection &amp; PPE consumables</td>
                       <td className="py-2.5 px-4 text-right font-mono">₹3,600</td>
                     </tr>
-                    <tr className="bg-slate-50/80 font-bold text-slate-900">
+                    <tr className="bg-white/5 font-bold text-white">
                       <td className="py-2.5 px-4" colSpan={2}>Gross Inpatient Subtotal</td>
                       <td className="py-2.5 px-4 text-right font-mono">₹39,000</td>
                     </tr>
-                    <tr className="text-emerald-700 bg-emerald-50/50">
+                    <tr className="text-emerald-400 bg-emerald-400/5">
                       <td className="py-2.5 px-4 font-semibold" colSpan={2}>
                         Less: Star Health TPA Approved Cashless Pre-Auth
                       </td>
                       <td className="py-2.5 px-4 text-right font-mono font-bold">-₹35,000</td>
                     </tr>
-                    <tr className="bg-slate-900 text-white font-bold">
+                    <tr className="bg-[#fb923c] text-[#0a0a0a] font-bold">
                       <td className="py-3 px-4" colSpan={2}>
                         Estimated Out-of-Pocket Balance Payable at Discharge
                       </td>
-                      <td className="py-3 px-4 text-right font-mono text-emerald-400 text-sm">₹7,200</td>
+                      <td className="py-3 px-4 text-right font-mono text-sm">₹7,200</td>
                     </tr>
                   </tbody>
                 </table>
@@ -748,18 +803,19 @@ export function PatientPortalShell({
             </div>
 
             {/* Guardrail #6 Statutory Clinical Disclaimer */}
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 space-y-1">
-              <div className="flex items-center gap-2 font-bold text-amber-800">
-                <ShieldCheck className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <div className="bg-amber-400/5 border border-amber-400/30 p-4 text-xs text-amber-200 space-y-1">
+              <div className="flex items-center gap-2 font-bold text-amber-300 uppercase tracking-wider text-[11px]">
+                <ShieldCheck className="w-4 h-4 text-amber-400 flex-shrink-0" />
                 Statutory Financial Disclaimer (Mandatory Regulatory Disclosure &bull; Guardrail #6)
               </div>
-              <p className="text-[11px] text-amber-800/90 leading-relaxed">
+              <p className="text-[11px] text-amber-200/80 leading-relaxed normal-case">
                 Notice: Estimates are calculated strictly within bounded empirical percentiles (P10 - P90) pursuant to the Clinical Establishments Act and IRDAI hospital price transparency directives. Actual final billing may adjust based on final doctor rounds, real-time pharmacy administration, or unforeseen emergency interventions. No unitemized administrative charges are levied.
               </p>
             </div>
           </div>
         </div>
       )}
-    </div>
+      </TabDeck>
+    </DashShell>
   );
 }

@@ -110,40 +110,40 @@ export function StaffIdentityModal({ role, onClose, onConfirm, authLoading }: St
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div 
-        className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-hero-heading relative overflow-hidden text-slate-900"
+    <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
+      <div
+        className="bg-[#0a0a0a] border border-white/15 max-w-lg w-full p-6 space-y-5 animate-hero-heading relative overflow-hidden text-slate-300"
       >
         {/* Modal Header */}
         <div className="flex items-start justify-between relative z-10">
           <div className="flex items-center gap-3.5">
-            <div 
-              className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl bg-[#eef4f8] border border-[#5b7b94]/20"
+            <div
+              className="w-12 h-12 flex items-center justify-center text-2xl bg-[#fb923c]/15 border border-[#fb923c]/30"
             >
               {role.iconEmoji}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span 
-                  className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#5b7b94] text-white"
+                <span
+                  className="px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-[#fb923c] text-[#0a0a0a]"
                 >
                   {role.badge}
                 </span>
-                <span className="text-[10px] font-mono text-slate-400">
+                <span className="text-[10px] font-mono text-slate-500 normal-case">
                   Hospital Directory
                 </span>
               </div>
-              <h3 className="text-xl font-black text-slate-900 tracking-tight mt-0.5">
+              <h3 className="text-base font-bold text-white uppercase tracking-tight mt-1">
                 Clock In: {role.label}
               </h3>
-              <p className="text-xs text-slate-500">
+              <p className="text-[11px] text-slate-400 normal-case">
                 {role.title}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-xl hover:bg-slate-100 transition"
+            className="text-slate-400 hover:text-white p-1.5 hover:bg-white/10 transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -152,9 +152,9 @@ export function StaffIdentityModal({ role, onClose, onConfirm, authLoading }: St
         {/* Single-Field Form with Autocomplete */}
         <form onSubmit={handleSubmit} className="space-y-4 relative z-10">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+            <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
               <span>Enter your Name or Staff ID</span>
-              <span className="text-[10px] text-slate-400 font-normal">
+              <span className="text-[9px] text-slate-500 font-normal normal-case">
                 Type to search or choose below
               </span>
             </label>
@@ -168,17 +168,17 @@ export function StaffIdentityModal({ role, onClose, onConfirm, authLoading }: St
                   setSelectedStaff(null);
                 }}
                 placeholder={role.placeholder}
-                className="w-full px-4 py-3 pl-10 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-sm font-medium focus:outline-none focus:border-[#5b7b94] focus:bg-white transition shadow-inner placeholder:text-slate-400"
+                className="w-full px-4 py-3 pl-10 bg-white/5 border border-white/15 text-white text-sm font-medium focus:outline-none focus:border-[#fb923c] transition placeholder:text-slate-500"
               />
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
             </div>
           </div>
 
           {/* Autocomplete Suggestions Dropdown / Quick Select */}
           <div className="space-y-1.5">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-              <span>Verified Hospital Directory ({suggestions.length}):</span>
-              <span className="text-slate-400 font-mono">1-Tap Select</span>
+              <span>Verified Directory ({suggestions.length})</span>
+              <span className="text-slate-500 font-mono normal-case">1-Tap Select</span>
             </div>
 
             <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
@@ -189,28 +189,28 @@ export function StaffIdentityModal({ role, onClose, onConfirm, authLoading }: St
                     key={member.id}
                     type="button"
                     onClick={() => handleSelectSuggestion(member)}
-                    className={`w-full p-2.5 rounded-xl border text-left transition flex items-center justify-between group ${
+                    className={`w-full p-2.5 border text-left transition flex items-center justify-between group ${
                       isSelected
-                        ? "bg-[#eef4f8] border-[#5b7b94] text-slate-900"
-                        : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200"
+                        ? "bg-[#fb923c]/10 border-[#fb923c]"
+                        : "bg-white/5 hover:bg-white/10 border-white/10"
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <span className="w-2 h-2 rounded-full bg-[#5b7b94]" />
+                      <span className="w-2 h-2 bg-[#fb923c]" />
                       <div>
-                        <div className="text-xs font-bold text-slate-900 group-hover:text-[#5b7b94] transition">
+                        <div className="text-xs font-bold text-white group-hover:text-[#fb923c] transition normal-case">
                           {member.name}
                         </div>
-                        <div className="text-[10px] text-slate-500 font-mono">
-                          ID: <strong className="text-slate-700">{member.id}</strong> • 📍 {member.ward}
+                        <div className="text-[10px] text-slate-400 font-mono normal-case">
+                          ID: <strong className="text-slate-200">{member.id}</strong> • 📍 {member.ward}
                         </div>
                       </div>
                     </div>
 
                     {isSelected ? (
-                      <CheckCircle2 className="w-4 h-4 text-[#5b7b94] shrink-0" />
+                      <CheckCircle2 className="w-4 h-4 text-[#fb923c] shrink-0" />
                     ) : (
-                      <span className="text-[10px] font-mono text-slate-400 group-hover:text-slate-800 transition">
+                      <span className="text-[10px] font-mono text-slate-500 group-hover:text-white transition normal-case">
                         Select ➔
                       </span>
                     )}
@@ -221,11 +221,11 @@ export function StaffIdentityModal({ role, onClose, onConfirm, authLoading }: St
           </div>
 
           {/* Clinical Scope Summary */}
-          <div className="p-3.5 rounded-2xl bg-[#eef4f8] border border-[#5b7b94]/20 text-[11px] text-slate-600 space-y-1">
-            <div className="font-bold text-slate-900 flex items-center gap-1.5">
-              <span>🛡️</span> Duty Station Scope:
+          <div className="p-3.5 bg-white/5 border border-white/10 text-[11px] text-slate-400 space-y-1">
+            <div className="font-bold text-white flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
+              <span>🛡️</span> Duty Station Scope
             </div>
-            <p className="leading-relaxed text-slate-600">{role.systemScope}</p>
+            <p className="leading-relaxed text-slate-400 normal-case">{role.systemScope}</p>
           </div>
 
           {/* Action Buttons */}
@@ -233,16 +233,16 @@ export function StaffIdentityModal({ role, onClose, onConfirm, authLoading }: St
             <button
               type="button"
               onClick={onClose}
-              className="w-1/3 py-2.5 rounded-full text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition"
+              className="w-1/3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-300 hover:text-white hover:bg-white/10 border border-white/15 transition"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={authLoading}
-              className="w-2/3 py-2.5 rounded-full text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
+              className="w-2/3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-[#0a0a0a] bg-[#fb923c] hover:bg-white transition flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <UserCheck className="w-4 h-4 text-white" />
+              <UserCheck className="w-4 h-4" />
               {authLoading ? "Clocking In..." : `Enter ${role.label} Workspace ➔`}
             </button>
           </div>
